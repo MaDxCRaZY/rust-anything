@@ -257,7 +257,9 @@ pub fn record(opts: &RecordOptions) -> Result<RecordOutcome> {
     let _ = std::fs::remove_file(&timed_out_path);
     let coverage_dir = opts.crate_dir.join(WORK_DIR).join(COVERAGE_DIR);
     let _ = std::fs::remove_dir_all(&coverage_dir);
-    let out = if manifest.language == crate::lang::Lang::Python {
+    let out = if manifest.language == crate::lang::Lang::Lua {
+        crate::harness_lua::record(opts.crate_dir, &manifest, &cases)?
+    } else if manifest.language == crate::lang::Lang::Python {
         crate::harness_py::record(opts.crate_dir, &cases)?
     } else if manifest.kind == Kind::CAbi {
         crate::harness_c::record(opts.crate_dir, &manifest, &cases)?
@@ -413,6 +415,9 @@ pub fn build(crate_dir: &Path) -> Result<PathBuf> {
         Kind::Pyo3 => crate::harness_py::build(crate_dir, &manifest),
         Kind::Ffi if manifest.language == crate::lang::Lang::Ruby => {
             crate::harness_ruby::build(crate_dir, &manifest)
+        }
+        Kind::CAbi | Kind::Ffi if manifest.language == crate::lang::Lang::Lua => {
+            crate::harness_lua::build(crate_dir, &manifest)
         }
         Kind::CAbi | Kind::Ffi => crate::harness_c::build(crate_dir, &manifest),
         Kind::Napi => {
@@ -599,6 +604,9 @@ pub fn bench(opts: &BenchOptions) -> Result<Vec<BenchRow>> {
     if manifest.language == crate::lang::Lang::Python {
         return crate::harness_py::bench(opts.crate_dir, &manifest, opts.min_ms);
     }
+    if manifest.language == crate::lang::Lang::Lua {
+        return crate::harness_lua::bench(opts.crate_dir, &manifest, opts.min_ms);
+    }
     if manifest.kind == Kind::CAbi {
         return crate::harness_c::bench(opts.crate_dir, &manifest, opts.min_ms);
     }
@@ -744,6 +752,12 @@ fn diff_exact(opts: &DiffOptions) -> Result<DiffOutcome> {
         && opts.module.is_none()
     {
         return crate::harness_py::diff(opts.crate_dir, &manifest, opts.ignore_key_order);
+    }
+    if let Ok(manifest) = Manifest::load(opts.crate_dir)
+        && manifest.language == crate::lang::Lang::Lua
+        && opts.module.is_none()
+    {
+        return crate::harness_lua::diff(opts.crate_dir, &manifest);
     }
     if let Ok(manifest) = Manifest::load(opts.crate_dir)
         && manifest.kind == Kind::CAbi

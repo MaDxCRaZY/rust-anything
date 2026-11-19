@@ -117,6 +117,7 @@ fn raise_line(lang: Lang, lines: &[&str], range: Range<usize>) -> Option<usize> 
     match lang {
         Lang::Ts | Lang::Java | Lang::Php | Lang::Csharp => find(&word("throw")),
         Lang::Python | Lang::Ruby => find(&word("raise")),
+        Lang::Lua => find(&word("error")),
         Lang::Go => {
             let open = range
                 .clone()

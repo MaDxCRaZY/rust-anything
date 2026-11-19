@@ -1017,7 +1017,7 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         Bridge::WasmBindgen => Kind::Wasm,
         Bridge::Pyo3 => Kind::Pyo3,
         Bridge::CAbi => Kind::CAbi,
-        Bridge::Cgo | Bridge::Fiddle | Bridge::Jni => Kind::Ffi,
+        Bridge::Cgo | Bridge::Fiddle | Bridge::LuaFfi | Bridge::Jni => Kind::Ffi,
         _ => Kind::Napi,
     });
 
@@ -1422,6 +1422,16 @@ fn ffi_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String, Str
                 crate::codegen_java::ERROR_JAVA.into(),
             ));
         }
+        crate::lang::Lang::Lua => {
+            files.push((
+                crate::harness_lua::wrapper_path(m),
+                crate::codegen_lua::wrapper(m).map_err(anyhow::Error::msg)?,
+            ));
+            files.push((
+                "lua/rust_anything_codec.lua".into(),
+                crate::codegen_lua::CODEC_LUA.into(),
+            ));
+        }
         other => bail!("no wrapper generator for {}", other.name()),
     }
     Ok(files)
@@ -1445,7 +1455,7 @@ fn bridge_ffi(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<
         ("src/port.rs".into(), port),
         (
             ".gitignore".into(),
-            "target/\n.rust-anything/\nruby/*.so\nruby/*.bundle\n".into(),
+            "target/\n.rust-anything/\nruby/*.so\nruby/*.bundle\nlua/*.so\nlua/*.dylib\n".into(),
         ),
         ("README.md".into(), readme(manifest)),
         (
@@ -1487,7 +1497,7 @@ fn bridge_c(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Ou
         ("src/port.rs".into(), crate::codegen_c::port_rs(manifest)),
         (
             ".gitignore".into(),
-            "target/\n.rust-anything/\nruby/*.so\nruby/*.bundle\n".into(),
+            "target/\n.rust-anything/\nruby/*.so\nruby/*.bundle\nlua/*.so\nlua/*.dylib\n".into(),
         ),
         ("README.md".into(), readme(manifest)),
         (

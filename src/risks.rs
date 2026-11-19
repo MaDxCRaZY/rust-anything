@@ -258,6 +258,12 @@ pub fn uses_regex(lang: crate::lang::Lang, source: &str) -> bool {
                     })
                     .is_match(source)
         }
+        Lang::Lua => has(&[
+            "string.find(",
+            "string.match(",
+            "string.gmatch(",
+            "string.gsub(",
+        ]),
         Lang::Python => has(&[
             "import re\n",
             "import re ",

@@ -287,6 +287,19 @@ const RUNTIMES: &[Runtime] = &[
         ],
     },
     Runtime {
+        name: "luajit",
+        program: "luajit",
+        args: &["-v"],
+        minimum: Some(Version(2, 1, 0)),
+        required: false,
+        java: false,
+        fix: [
+            "brew install luajit",
+            "winget install LuaJIT",
+            "sudo apt install luajit",
+        ],
+    },
+    Runtime {
         name: "java",
         program: "java",
         args: &["-version"],

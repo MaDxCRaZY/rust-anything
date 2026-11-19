@@ -184,6 +184,10 @@ pub fn profile(root: &Path, command: &[String], lang: Option<Lang>) -> Result<Re
         Lang::Go => go(&root, command, &work)?,
         Lang::Java => java(&root, command, &work)?,
         Lang::Ruby => ruby(&root, command, &work)?,
+        Lang::Lua => bail!(
+            "`profile` does not run Lua/LÖVE workloads yet; use a Lua profiler and port the \n\
+             hot functions it shows (use `record`/`bridge`/`diff` for correctness)"
+        ),
         Lang::C => bail!(
             "`profile` runs TS/JS, Python, Go, Java and Ruby workloads; for C, use `perf record -g` \
              and port the hot loops it shows"

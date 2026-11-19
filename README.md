@@ -12,7 +12,7 @@
 
 <p align="center"><em>CLIs, servers and libraries, piece by piece, checked against the original at every step.</em></p>
 
-<p align="center">Node.js and TypeScript · Python · C · Go · Ruby · Java · PHP and C# in preview</p>
+<p align="center">Node.js and TypeScript · Python · C · Go · Ruby · Java · Lua/LÖVE · PHP and C# in preview</p>
 
 <p align="center">
   <a href="https://crates.io/crates/rust-anything"><img src="https://img.shields.io/crates/v/rust-anything?color=E2862A&label=crates.io" alt="crates.io version"></a>
@@ -177,6 +177,7 @@ done.
 | Go | package | typed cgo calls and a generated binary wire, in a package with the original API | a generated Go driver, built as its own module |
 | Ruby | file or folder of module functions | a magnus extension under the original modules | a generated Ruby driver |
 | Java | package of `public static` methods | typed JNI and a generated binary wire, in wrapper classes with the original methods | a generated reflection driver |
+| Lua / LÖVE | `.lua` file or a LÖVE game (`conf.lua` + `main.lua`) | LuaJIT FFI over the C ABI: generated `lua/<lib>.lua` wrapper and JSON codec | LuaJIT running the original functions, with LÖVE callbacks as units |
 | PHP (preview) | folder of functions and `public static` methods | coming next: PHP FFI over a C ABI | whole apps today: `app record`, `app replay` and the front door, for CLIs and servers (`php -S`) |
 | C# (preview) | folder of `public static` methods | coming next: P/Invoke over a C ABI | whole apps today: `app record`, `app replay` and the front door, for CLIs and ASP.NET servers (`dotnet <app>.dll`) |
 

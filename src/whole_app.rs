@@ -81,6 +81,7 @@ fn main_pattern(lang: Lang) -> Option<&'static str> {
         Lang::Java => r"public\s+static\s+void\s+main\s*\(",
         Lang::Php => r#"^#!.*\bphp\b|\$argv\b|PHP_SAPI\s*===?\s*['"]cli['"]"#,
         Lang::Csharp => r"\bstatic\s+(?:async\s+)?(?:void|int|Task(?:<int>)?)\s+Main\s*\(",
+        Lang::Lua => r"function\s+love\.load\s*\(",
     })
 }
 
@@ -246,6 +247,28 @@ fn manifest_entries(root: &Path, lang: Lang) -> Vec<EntryPoint> {
                 });
             }
         }
+    }
+    if lang == Lang::Lua && root.join("main.lua").exists() {
+        let text = read(root, "main.lua");
+        let mut callbacks: Vec<&str> = crate::lang::lua::LOVE_CALLBACKS
+            .iter()
+            .copied()
+            .filter(|cb| text.contains(&format!("function love.{cb}(")))
+            .collect();
+        callbacks.sort();
+        out.push(EntryPoint {
+            kind: "game",
+            path: "main.lua".to_string(),
+            name: Some("love callbacks".to_string()),
+            evidence: format!(
+                "LÖVE callbacks: {}",
+                if callbacks.is_empty() {
+                    "conf.lua + main.lua project".to_string()
+                } else {
+                    callbacks.join(", ")
+                }
+            ),
+        });
     }
     out
 }
@@ -456,6 +479,12 @@ pub fn declared(root: &Path, lang: Lang) -> BTreeSet<String> {
             }
         }
         Lang::C => {}
+        Lang::Lua => {
+            // A LÖVE game's only runtime dependency is the engine itself.
+            if root.join("main.lua").exists() || root.join("conf.lua").exists() {
+                out.insert("love".to_string());
+            }
+        }
     }
     out.into_iter()
         .filter(|n| !n.is_empty())
@@ -475,7 +504,9 @@ pub fn whole_app(root: &Path, report: &Report) -> WholeApp {
             entry_points.push(found);
         }
     }
-    let shape = if entry_points.iter().any(|e| e.kind == "server") {
+    let shape = if entry_points.iter().any(|e| e.kind == "game") {
+        "game"
+    } else if entry_points.iter().any(|e| e.kind == "server") {
         "server"
     } else if entry_points.iter().any(|e| e.kind == "cli") {
         "cli"
@@ -604,6 +635,10 @@ pub fn whole_app(root: &Path, report: &Report) -> WholeApp {
             }
             "cli" => {
                 "Yes: a clap front door (`app front-door`) takes every command over first".into()
+            }
+            "game" => {
+                "Yes: port the LÖVE callbacks (`love.load`/`update`/`draw`) into a Rust game loop"
+                    .into()
             }
             _ => "Yes: the Rust crate's public API becomes the library's front door".into(),
         },

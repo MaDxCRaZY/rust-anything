@@ -10,6 +10,7 @@ pub mod c;
 pub mod csharp;
 pub mod go;
 pub mod java;
+pub mod lua;
 pub mod php;
 pub mod python;
 pub mod ruby;
@@ -29,6 +30,7 @@ pub enum Lang {
     Java,
     Php,
     Csharp,
+    Lua,
 }
 
 impl Lang {
@@ -42,6 +44,7 @@ impl Lang {
             Self::Java => "Java",
             Self::Php => "PHP",
             Self::Csharp => "C#",
+            Self::Lua => "Lua/LÖVE",
         }
     }
 
@@ -57,12 +60,17 @@ impl Lang {
             Self::Java => "Maven",
             Self::Php => "Composer",
             Self::Csharp => "NuGet",
+            Self::Lua => "LuaRocks / LÖVE",
         }
     }
 
     /// The language of a repository: from its manifest files, else its most common source files.
     pub fn detect(root: &Path) -> Self {
         let has = |name: &str| root.join(name).exists();
+        // A LÖVE game has both of these at its root; detect it before generic manifests.
+        if has("conf.lua") && has("main.lua") {
+            return Self::Lua;
+        }
         if has("go.mod") {
             return Self::Go;
         }
@@ -90,7 +98,7 @@ impl Lang {
         if has("package.json") {
             return Self::Ts;
         }
-        let mut counts = [0usize; 8];
+        let mut counts = [0usize; 9];
         for entry in crate::walk::builder(root)
             .hidden(true)
             .require_git(false)
@@ -109,13 +117,13 @@ impl Lang {
                 counts[i] += 1;
             }
         }
-        let best = (0..8)
+        let best = (0..9)
             .max_by_key(|&i| (counts[i], std::cmp::Reverse(i)))
             .unwrap_or(0);
         Self::ALL[best]
     }
 
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::Ts,
         Self::Python,
         Self::C,
@@ -124,6 +132,7 @@ impl Lang {
         Self::Java,
         Self::Php,
         Self::Csharp,
+        Self::Lua,
     ];
 
     /// File extensions of the language's source files.
@@ -139,6 +148,7 @@ impl Lang {
             Self::Java => &["java"],
             Self::Php => &["php"],
             Self::Csharp => &["cs"],
+            Self::Lua => &["lua"],
         }
     }
 }
@@ -160,6 +170,7 @@ pub fn discover(lang: Lang, root: &Path) -> anyhow::Result<crate::ts::discover::
         Lang::Java => java::discover(root),
         Lang::Php => php::discover(root),
         Lang::Csharp => csharp::discover(root),
+        Lang::Lua => lua::discover(root),
         _ => anyhow::bail!("{} is not supported yet", lang.name()),
     }
 }
@@ -173,6 +184,7 @@ pub fn scan(lang: Lang, _path: &str, text: &str) -> crate::ts::scan::FileFacts {
         Lang::Java => java::scan(text),
         Lang::Php => php::scan(text),
         Lang::Csharp => csharp::scan(text),
+        Lang::Lua => lua::scan(text),
         _ => crate::ts::scan::FileFacts::default(),
     }
 }
@@ -197,6 +209,7 @@ pub fn resolve(
         Lang::Java => java::resolve(spec, index, ws),
         Lang::Php => php::resolve(from, spec, index, ws),
         Lang::Csharp => csharp::resolve(spec, index, ws),
+        Lang::Lua => lua::resolve(from, spec, index, ws),
         _ => Resolution::Unresolved,
     }
 }
@@ -217,6 +230,7 @@ pub fn exports(
         Lang::Java => (java::exports(path, text), Vec::new()),
         Lang::Php => (php::exports(path, text), Vec::new()),
         Lang::Csharp => (csharp::exports(path, text), Vec::new()),
+        Lang::Lua => (lua::exports(path, text), Vec::new()),
         _ => (Vec::new(), Vec::new()),
     }
 }
@@ -230,6 +244,7 @@ pub fn lookup(lang: Lang, name: &str) -> Option<crate::ts::deps::CrateMatch> {
         Lang::Java => java::lookup(name),
         Lang::Php => php::lookup(name),
         Lang::Csharp => csharp::lookup(name),
+        Lang::Lua => lua::lookup(name),
         _ => None,
     }
 }

@@ -34,6 +34,42 @@ fn detects_manifestless_typescript_modules_and_defaults_to_typescript_when_empty
 }
 
 #[test]
+fn detects_love_projects_and_lua_units() {
+    use rust_anything::lang::Lang;
+    let root =
+        std::env::temp_dir().join(format!("rust-anything-love-detect-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("conf.lua"),
+        "function love.conf(t) t.window.width = 1280 end",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("main.lua"),
+        "local constants = require('src.data.constants')\n\
+         function love.load() end\n\
+         function add(a, b) return a + b end\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src/data")).unwrap();
+    std::fs::write(
+        root.join("src/data/constants.lua"),
+        "local M = { W = 640 }\nreturn M\n",
+    )
+    .unwrap();
+    assert_eq!(Lang::detect(&root), Lang::Lua);
+    let report = analyze(&root).unwrap();
+    assert!(report.units.iter().any(|u| u.id.ends_with("main.lua")));
+    let main = report
+        .units
+        .iter()
+        .find(|u| u.id.ends_with("main.lua"))
+        .unwrap();
+    assert!(main.exports > 0, "Lua functions should be exported units");
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn groups_files_into_units_and_skips_fixtures() {
     let report = mini();
     let ids: Vec<&str> = report.units.iter().map(|u| u.id.as_str()).collect();

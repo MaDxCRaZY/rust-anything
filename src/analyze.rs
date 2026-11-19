@@ -48,6 +48,8 @@ pub enum Bridge {
     Cgo,
     /// Ruby through Fiddle over a C ABI.
     Fiddle,
+    /// Lua/LÖVE through LuaJIT FFI over a C ABI.
+    LuaFfi,
     Jni,
     /// PHP through its FFI extension over a C ABI.
     PhpFfi,
@@ -64,6 +66,7 @@ impl Bridge {
             Self::CAbi => "C ABI",
             Self::Cgo => "cgo",
             Self::Fiddle => "Fiddle (C ABI)",
+            Self::LuaFfi => "LuaJIT FFI (C ABI)",
             Self::Jni => "JNI",
             Self::PhpFfi => "PHP FFI (C ABI)",
             Self::DotnetFfi => "P/Invoke (C ABI)",
@@ -81,6 +84,7 @@ impl Bridge {
             Lang::Java => Self::Jni,
             Lang::Php => Self::PhpFfi,
             Lang::Csharp => Self::DotnetFfi,
+            Lang::Lua => Self::LuaFfi,
         }
     }
 }
@@ -611,9 +615,12 @@ fn score(u: usize, ctx: &Ctx) -> UnitReport {
     let wave = ctx.waves[u];
     let cycle = &ctx.cycles[u];
     let mut notes = Vec::new();
-    let keep = unit.ui
-        || unit.platforms.contains(&Platform::Ui)
-        || unit.platforms.contains(&Platform::Editor);
+    // LÖVE's UI calls are the game itself: they must stay port-able units, unlike a
+    // desktop app's UI layer that a CLI-oriented port would keep in the original language.
+    let keep = ctx.lang != Lang::Lua
+        && (unit.ui
+            || unit.platforms.contains(&Platform::Ui)
+            || unit.platforms.contains(&Platform::Editor));
     let blocking_deps: Vec<&String> = unit
         .external_deps
         .iter()
