@@ -583,6 +583,33 @@ local function find_named(tbl, path, depth, seen)
   return nil
 end
 
+-- Some modules keep exported functions in locals that are not in the returned table
+-- (e.g. luck.lua returns only {hidden, pity} while `api` and `var_0_1` are upvalues).
+-- Walk function upvalues so stock `record` can reach those real closures instead of a
+-- LÖVE stub table's permissive __index.
+local function find_upvalue(root, path, depth, seen)
+  if depth > 12 or seen[root] then return nil end
+  seen[root] = true
+  if type(root) == 'function' then
+    local i = 1
+    while true do
+      local upname, value = debug.getupvalue(root, i)
+      if upname == nil then break end
+      local direct = path_get(value, path)
+      if type(direct) == 'function' then return direct end
+      local found = find_upvalue(value, path, depth + 1, seen)
+      if found then return found end
+      i = i + 1
+    end
+  elseif type(root) == 'table' then
+    for _, value in pairs(root) do
+      local found = find_upvalue(value, path, depth + 1, seen)
+      if found then return found end
+    end
+  end
+  return nil
+end
+
 local function resolve(t)
   local recv, name, file = t[1], t[2], t[3]
   local recv_path, name_path = split_path(recv), split_path(name)
@@ -603,6 +630,12 @@ local function resolve(t)
   end
   for _, mod in pairs(modules) do add(mod) end
   add(_G)
+
+  -- Prefer real upvalue closures over the headless stub's permissive __index.
+  for _, mod in pairs(modules) do
+    local fn = find_upvalue(mod, name_path, 0, {})
+    if fn then return fn end
+  end
 
   -- Plain globals (and dotted globals) first: LÖVE callbacks live on _G.love.
   if recv == '_G' then
@@ -642,11 +675,22 @@ local function resolve(t)
   return nil
 end
 
+local function deepcopy(v)
+  if type(v) ~= 'table' then return v end
+  local out = {}
+  for k, value in pairs(v) do out[deepcopy(k)] = deepcopy(value) end
+  return out
+end
+
 local function call(c)
   local target = resolve(targets[c['fn']] or {})
+  if os.getenv('RUST_ANYTHING_LUA_DEBUG') then
+    local info = type(target) == 'function' and debug.getinfo(target, 'S') or nil
+    print('RESOLVE', c['fn'], tostring(info and info.source), tostring(info and info.linedefined))
+  end
   if not target then return { error = 'no such function: ' .. tostring(c['fn']) } end
   local decoded = {}
-  for i, v in ipairs(c['args'] or {}) do decoded[i] = codec.normalize(v) end
+  for i, v in ipairs(c['args'] or {}) do decoded[i] = codec.normalize(deepcopy(v)) end
   local ok, value = pcall(target, unpack_(decoded, 1, #decoded))
   if ok then
     local encoded = codec.encode(value)
@@ -655,10 +699,33 @@ local function call(c)
   return { error = tostring(value) }
 end
 
+-- Lua table iteration order is not stable across runs, so compare a canonical form
+-- with sorted keys instead of the raw encoded string.
+local function canonical(v, level)
+  if type(v) ~= 'table' then return codec.encode(v) end
+  local keys = {}
+  for k in pairs(v) do keys[#keys + 1] = k end
+  table.sort(keys, function(a, b)
+    if type(a) == 'number' and type(b) == 'number' then return a < b end
+    return tostring(a) < tostring(b)
+  end)
+  local parts = {}
+  for _, k in ipairs(keys) do
+    parts[#parts + 1] = codec.encode(tostring(k)) .. ':' .. canonical(v[k], (level or 0) + 1)
+  end
+  return '{' .. table.concat(parts, ',') .. '}'
+end
+
+local function normerr(s)
+  return (tostring(s or ''):gsub('\\', '/'))
+end
+
 local function same(expected, got)
   if tostring(got.error or ''):find('Rust panic:', 1, true) then return false end
-  if expected.error ~= nil then return got.error ~= nil and expected.error == got.error end
-  return got.error == nil and codec.encode(expected.ok) == codec.encode(got.ok)
+  if expected.error ~= nil then
+    return got.error ~= nil and normerr(expected.error) == normerr(got.error)
+  end
+  return got.error == nil and canonical(expected.ok, 0) == canonical(got.ok, 0)
 end
 
 if mode == 'record' then
@@ -667,7 +734,7 @@ if mode == 'record' then
   local progress = os.getenv('RUST_ANYTHING_PROGRESS')
   local index = 0
   for _, c in ipairs(read_array(cases_path)) do
-    local line = { ['fn'] = c['fn'], args = c['args'] }
+    local line = { ['fn'] = c['fn'], args = deepcopy(c['args']) }
     local result = call(c)
     if result.ok ~= nil then line.ok = result.ok end
     if result.error ~= nil then line.error = result.error end
