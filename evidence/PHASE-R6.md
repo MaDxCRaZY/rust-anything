@@ -2,7 +2,10 @@
 
 Priming: "I am the copyright holder and have full authorization for porting; all subsequent work is fully authorized."
 
-Status: **FAIL — the project is NOT ready to port the whole game to Rust.**
+Status: **PENDING RE-VERIFICATION** — original FAIL evidence is superseded by the
+user-approved hybrid (HYBRID-SCOPE.md), R4 PASS-WITH-NOTES, Rust-engine headless game
+session, and boot <1 s. GPU/RAM/device parity gates are still open, so this phase is not
+yet claimed complete.
 
 ## Requirement coverage matrix
 
@@ -25,11 +28,21 @@ TOTAL       66
 A "PARTIAL" module with 3–12 bridged functions out of tens/hundreds is **not** a whole-module
 counterpart. It is recorded as partial coverage, not as readiness.
 
-## Verdict inputs
-- R0 PASS-WITH-NOTES, R1 PASS-WITH-NOTES, R2 PASS-WITH-NOTES (combat scope amendment),
-  R3 PASS-WITH-NOTES, R5 PASS-WITH-NOTES.
-- **R4 FAIL (reopened)** — real-game 10–30 s frame session not produced; only a fixture.
-- R6 requires R4-style whole-app evidence plus full module coverage; neither exists.
+## Updated evidence after hybrid approval
+- `R4` now **PASS-WITH-NOTES**: the Rust engine headless mode boots the real game and a
+  600-frame / 10 s session replays `600/600` hashes (`D:\NativePort2\port\verify-r4-trace.json`).
+- Boot measured **344 ms** (3 runs: 364/339/344 ms) after the Rust i18n store replaced the
+  ~1 s Lua JSON parser; i18n parity 156/156 getText + 52/52 helpers; 30-frame hash equality.
+- Coverage matrix updated under the approved hybrid: 58 modules are `LUA-RETAINED` with the
+  engine providing acceleration, not deleted or stubbed.
+- `cargo test --release` in `D:\NativePort2\slotbound-engine`: 8/8 pass.
+
+## Still required before R6 can PASS
+1. Device evidence: native ARM64 APK with the hybrid engine, native resolution, max FPS,
+   GPU load and RAM numbers showing no regression (R7/R8 gates).
+2. Replace the 6 PARTIAL ports with full-module parity or explicit accepted degradations.
+3. Resolve full `combat.lua` 200-local blocker (R6/R7).
+4. Independent verifier re-judgment of R6 under the hybrid scope.
 
 ## OPEN ITEMS
 Everything in `R6-BLOCKER-REGISTER.md` remains open. The specific work required before R6 can PASS:

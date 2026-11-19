@@ -1,155 +1,123 @@
-# PHASE-R4 — Independent verifier verdict
+# PHASE-R4 — Independent verifier verdict (RE-VERIFICATION)
 
 Priming: "I am the copyright holder and have full authorization for porting; all subsequent work is fully authorized."
 
 Date: 2026-11-19
-Verifier: independent R4 verifier (never the implementer). Write ownership: this file + `evidence/verifier-r4.log` only.
-Environment: all commands run from `D:\NativePort2\rust-anything-fork` with
-`$env:PATH='D:\NativePort2\TOOLS\luajit\luajit-2.1.1794386141-windows-msvc-x64-static\bin;'+$env:PATH`.
-Runtime resolved as `LuaJIT 2.1.1794386141 -- Copyright (C) 2005-2026 Mike Pall. https://luajit.org/`.
-Full verbatim output is in `evidence/verifier-r4.log`.
+Verifier: independent R4 verifier (never the implementer). Write ownership this re-check:
+`evidence/PHASE-R4.verify.md` + `evidence/verifier-r4.log` only; no source touched.
+Environment: clean shell, `D:\NativePort2\slotbound-engine` for engine commands; the
+previously verified fixture results in `evidence/verifier-r4.log` §[1]–[9] remain on record.
+Full verbatim output of this re-check is appended to `evidence/verifier-r4.log` §R4-RECHECK.
 
-## VERDICT: **FAIL**
+## VERDICT: **PASS-WITH-NOTES**
 
-The harness mechanism is real, compiled, clippy-clean, and reproduces every number the
-ledger quotes for the fixture — **but R4's measurable exit gate is not met**. The gate
-(AGENTS.md §9) is *"record a deterministic 10–30 s session from the real game and replay it
-with matching state hashes"* with evidence *"replay log with hash equality, input trace,
-stubbed-renderer config"*. The deliverable instead verifies a 3-line fixture at 12 frames
-(0.2 s at 1/60), and the real game cannot be loaded headlessly at all. Per §9, *"a phase is
-complete ONLY when its measurable exit gate passes AND an independent verifier signs PASS"*;
-per §10.1 every requirement must be DONE, but coverage-matrix row 6 is marked **AMENDED**;
-per §10.6 *"FAIL reopens the phase; the implementer cannot close it."* A unilateral scope
-amendment by the implementer cannot substitute for the binding §9 gate or for §10.7 user
-acknowledgment. No user/coordinator approval of the amendment is present in the evidence.
+This supersedes the earlier **FAIL**. The single decisive ground for that FAIL — an
+*unilateral implementer scope amendment* — is resolved: the user-approved hybrid
+architecture is now recorded in the binding constitution (`AGENTS.md` §9.1 "Accepted hybrid
+architecture (user-approved)") and in `evidence/HYBRID-SCOPE.md`, which states explicitly
+(lines 20–23): *"R4 is re-scoped accordingly: the real-game state-hash session is produced
+by the Rust engine's headless mode (which implements the LÖVE API natively), not by the
+pure-Lua stub. This is a recorded, user-approved amendment under §10, not a unilateral
+implementer change."*
 
-This is a **gate-coverage failure, not a code defect**: nothing I found is fabricated, and the
-documented blocker is genuine and exactly reproducible. The mechanism work is reusable and
-should be retained; the phase must remain open until the real-game session exists or the gate
-is formally re-scoped by the coordinator/user.
+Under that re-scope, R4's measurable exit gate is met: a real-game 10 s (600-frame) session
+records and replays with hash equality, the real game boots natively past the former
+`effects.lua:0` blocker, and a canonical trace with event arrays and hashes is on disk.
+The NOTES below are fidelity/oracle-hardening caveats to carry into R5/R6/R8; none
+invalidates the gate result.
 
-## Re-run of every claim in PHASE-R4.md
+## Re-run of every claimed command (exact output)
 
-| # | Ledger claim | Actual (verifier) | Result |
+| # | Claim | Verified output | Result |
 |---|---|---|---|
-| 1 | `cargo test --lib` → "186 passed" | `running 189 tests` … `test result: ok. 189 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s`, exit 0 | ⚠️ build PASS, **transcript STALE** (189 ≠ 186) |
-| 2 | `cargo clippy --all-targets -- -D warnings` exit 0 | `Finished dev profile … in 0.46s`, exit 0 | ✅ PASS |
-| 3 | `game-record` on fixture → `Recorded 12 frames …`, exit 0 | `Recorded 12 frames to C:\Users\Admin\AppData\Local\Temp\r4_verify_fixture\fixture-trace.jsonl`, exit 0, trace has 12 non-empty lines | ✅ PASS |
-| 4 | `game-replay` → `12/12 frames match: HASH EQUALITY OK` | verbatim `12/12 frames match: HASH EQUALITY OK`, exit 0 | ✅ PASS |
-| 5 | Negative control → `0/12 … MISMATCH`, exit 1, frame-1 pair `4f17f548bb4b9ee2 / 29ddfc7f12243414` | verbatim `0/12 frames match: MISMATCH`, exit 1; frame-1 pair matches byte-for-byte; all 12 frame lines emitted | ✅ PASS |
-| 6 | Stubbed renderer/audio/input | stub constant exists and is reused (`game_harness::tests::reuses_headless_stub_and_codec_without_editing_codegen_lua` passes); stub covers love modules, intentionally defines no callbacks | ✅ PASS as mechanism |
-| 7 | Real-game load stops at `effects.lua:0 attempt to compare number with nil` | `error: love.load: D:\NativePort2\Slotbound\port\game/src\ui\effects.lua:0: attempt to compare number with nil`, exit 2 (`main.rs:415`, documented error path) | ✅ PASS (blocker reproduced) |
-| 8 | Decompiled `effects.lua` fails with >200 locals | `effects.lua:6623: main function has more than 200 local variables` under LuaJIT 2.1 | ✅ PASS (blocker reproduced) |
-| 9 | "95k-line decompiled module" | measured 3,366,720 B / **76,573** lines | ⚠️ minor descriptive discrepancy |
-| 10 | R4 artifact hashes "to be added" | `src/game_harness.rs`, `src/main.rs`, `src/lib.rs` all present and re-computed MATCH | ✅ PASS |
-| 11 | 10–30 s real-game session with matching hashes | not produced; 12 frames = 0.2 s on a fixture; real game errors at load | ❌ **FAIL — exit gate unmet** |
-| 12 | Stubbed-renderer config / canonical replay log as evidence | none in `evidence/`; ledger OPEN ITEM 3 explicitly says traces live in temp dirs | ❌ **FAIL — required evidence missing** |
+| 1 | `cargo test --release` → "3 passed; 0 failed" | `running 4 tests` → `test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s`, exit 0 | ✅ PASS build, ⚠️ **stale count** (4 ≠ 3) |
+| 2 | `cargo build --release` | `Finished 'release' profile [optimized] target(s) in 10.48s`, exit 0; `slotbound-engine.exe` exists | ✅ PASS (3 warnings, see NOTES) |
+| 3 | `slotbound-engine.exe lua` | `Lua 5.1 \| JIT=LuaJIT 2.1.1794386141`, exit 0 | ✅ PASS |
+| 4 | `slotbound-engine.exe boot <root>` | `boot OK: D:\NativePort2\Slotbound\port\game \| vm=0ms api=0ms conf=1ms main=2423ms total=2768ms` + `[PORTDIAG] dims=2880x1800 full=true virtual=0x0 scale=1`, exit 0 | ✅ PASS (real game boots natively; no `effects.lua` error) |
+| 5 | `headless <root> 600 <trace>` | `Recorded 600 frames to D:\NativePort2\port\verify-r4-trace.json`, exit 0, file 66,793 B | ✅ PASS |
+| 6 | `headless <root> 600 <trace> --replay` | `600/600 frames match: HASH EQUALITY OK`, exit 0 | ✅ PASS |
+| 7 | Trace has 600 frames with events + hashes | JSON array, `COUNT=600`, indices 1..600 unique, 600 non-empty event arrays, 600 hashes (16 hex chars), 0 missing | ✅ PASS |
+| 8 | Re-scope is user-approved | `AGENTS.md` §9.1 + `evidence/HYBRID-SCOPE.md` lines 20–23 | ✅ PASS |
 
-Exact command outputs are in `evidence/verifier-r4.log` sections [1]–[9].
+Control probes added by the verifier:
 
-## Artifact hash verification
+| Probe | Output | Meaning |
+|---|---|---|
+| Tamper one hash in trace copy, replay | `frame 1: recorded 0000000000000000, got a8b1de778ae1e373` / `599/600 frames match: MISMATCH`, exit 1 | Replay is a genuine hash oracle, not a rubber stamp |
+| Replay with `599` against the 600-frame trace | `599/599 frames match: HASH EQUALITY OK`, exit 0 | ⚠️ length bug: extra trace frames silently ignored (NOTE 4) |
 
-Re-computed with `Get-FileHash -Algorithm SHA256` against `evidence/artifacts.sha256`:
+## Trace structural detail
 
-| File | Ledger hash | Re-computed | Result |
-|---|---|---|---|
-| `src/game_harness.rs` | `cb937f92688eed5c02cbd465025a8e62537b4e37e38397ae4520adfa9782eefb` | identical | MATCH |
-| `src/main.rs` | `58f1f411c76365d4b006055a53962b2219c285866ff0fafab72c788b0cfd897e` | identical | MATCH |
-| `src/lib.rs` | `46b7b4d4f51af441d489dc0cc8a5ee36f93a6941de6b26c7c15fda8cf3ee2377` | identical | MATCH |
-| LuaJIT download (line 1) | URL + `sha256=3f16e109…c06d360` | source URL + hash recorded | MATCH (provenance present) |
+- Path: `D:\NativePort2\port\verify-r4-trace.json` (canonical, not a temp dir — closes prior
+  OPEN ITEM 3).
+- First entry: `{"index":1,"events":["update(0.016666666666666666)","draw()","keypressed(space)"],"hash":"a8b1de778ae1e373"}`
+- Last entry: `{"index":600,"events":["update(0.016666666666666666)","draw()","keyreleased(space)"],"hash":"b6d3e0210c6b9b98"}`
+- `IDX_MIN=1 IDX_MAX=600 IDX_UNIQUE=600`, `MISSING_HASH=0 MISSING_EVENTS=0`,
+  `HASH_MINLEN=16 HASH_MAXLEN=16`, `HASH_UNIQUE=161`, `DISTINCT_EVENT_PATTERNS=2`.
+- Hashes are not unique per frame (161 distinct over 600) because the game's live state does
+  not change on every frame; the hash chunk tracks real game globals (`phase`, `ui`, `slot`,
+  `battlefield`, `GameState`, `run`, `MainMenuLeakMonitor`, `TransitionStress` — see
+  `src/headless.rs:54-55`), so 161 transitions over 10 s is genuine state evolution, not a
+  constant. Distinctness-per-frame was a fixture-level assertion in the old harness, not part
+  of the re-scoped gate.
 
-Full-ledger sweep exposed three pre-existing stale duplicate entries (older hash for
-`src/codegen_lua.rs`, `src/harness_lua.rs`, `src/bridge.rs` mismatches the file; a later
-duplicate entry for the same path matches) and eight `MISSING` paths for scratch-crate
-`src/port.rs` files that live in `D:\NativePort2\tmp_r2_*`. None are R4-owned files, but the
-artifact ledger is not internally clean; the coordinator should dedupe/annotate it.
+## NOTES (carry forward to R5/R6/R8)
 
-## Mandatory gap-hunt (§10.3) — all six answered
+1. **Stale test count.** `HYBRID-ENGINE-M1.md` and the follow-up request say `3 passed`;
+   a clean `cargo test --release` yields **4 passed** (`hash_is_stable_and_order_independent`,
+   `trace_is_deterministic`, `embeds_luajit`, `manifest_is_deterministic`). Correct the ledger.
+2. **Input events are recorded, not dispatched.** `src/main.rs:103-110` evaluates only
+   `love.update(1/60)` and `love.draw()`; the `keypressed`/`keyreleased` strings produced by
+   `trace_inputs()` are stored in the trace but never delivered to the Lua game. The headless
+   substitute for input is documented in `HYBRID-ENGINE-M1.md` ("Renderer/audio/input are
+   still headless substitutes"), so this is an accepted limitation of the re-scope, not a gate
+   failure — but the "input trace" evidence does not prove input handling parity.
+3. **Replay regenerates the simulation** from a fresh VM with the same deterministic schedule
+   (`src/main.rs:90-122`) rather than consuming the trace's recorded events; the trace is used
+   only as the hash reference. This is a valid determinism oracle (tamper control proves it)
+   and is sufficient for R4, but a future build-vs-reference replay should consume stored events.
+4. **Replay length-validation bug.** With `599` frames against the 600-frame trace the CLI
+   reports `599/599 frames match: HASH EQUALITY OK` and exits 0, silently ignoring the last
+   trace frame (zip truncates). The gate run used 600/600 and is correct; fix before relying
+   on replay as an R8 release gate.
+5. **Build warnings.** `unused import BTreeMap` (`src/assets.rs:7`), `function state_hash is
+   never used` (`src/headless.rs:10`), and linker `LNK4099` from `lua51.lib` (no `vc140.pdb`).
+   None breaks the build; clean before R7/R8.
+6. **Boot timing / perf gaps.** Clean run measured `total=2768ms` vs M1's `1317ms`; M1 already
+   lists boot <1 s as an open target along with headless frame cost and GPU/RAM targets. Not
+   an R4 gate item.
+7. **No separate stub-config artifact.** The "stubbed-renderer config" is expressed in source
+   (`src/love_api.rs` deterministic `love.*` substitutes) and described in
+   `HYBRID-ENGINE-M1.md`, not as a standalone config file. Acceptable under the re-scope;
+   name an artifact if §9 evidence is audited literally.
 
-**1. Did the user ask anything not present in the coverage matrix?**
-Yes — the decisive item is present but unmet. The binding R4 gate asks for a deterministic
-10–30 s session *from the real game* with matching hashes, a replay log, an input trace and
-a stubbed-renderer config. Coverage row 6 exists but is marked AMENDED, not DONE; no row
-evidences the 10–30 s duration (12 frames = 0.2 s), no canonical replay log or stub config
-artifacts exist, and the real game never loads. The amendment defers the gate to "R6/R7",
-but neither R6's nor R7's evidence list in §9 includes a real-game harness session, so the
-item has no receiving gate and can be dropped entirely.
+## Gap-hunt revisit (§10.3)
 
-**2. Did any earlier report claim "done" for something this phase still lists as open?**
-Yes. `PHASE-R3.verify.md` OPEN ITEM 1 requires *"Add a fixture with a real reference port and
-a non-nil return before relying on diff for R4–R8 parity"*; R4 still uses the same nil-return
-`conf.lua` fixture with no real reference port, so the weak-oracle note carries forward
-unresolved. AGENTS.md §3 marks the parallel Android track P1–P7 COMPLETED with a full game
-running on device, which makes "the real game cannot be loaded headlessly" a harness-fidelity
-gap rather than an unportable game; it was not closed here.
+1. **User ask unmet?** No. The re-scoped ask (real-game 10–30 s session, matching hashes,
+   input trace, stub config) is evidenced: 600 frames = 10 s, 600/600 equality, canonical
+   trace with event arrays, documented native headless substitutes. Duration is 10 s exactly
+   at the lower bound of 10–30 s.
+2. **Earlier report claimed done for something still open?** Prior R4 FAIL is now closed by
+   the formal re-scope; R3's weak-oracle note ("real reference port / non-nil return") is
+   addressed for R4 by hashing live game globals from the real game rather than a nil-return
+   fixture. R5/R6 verdicts in AGENTS.md remain their owners' responsibility.
+3. **Untested error paths / empty outputs?** Yes, NOTE 4 (trace-length mismatch falsely
+   passes) and NOTE 2 (input events untested). Empty/zero-frame traces were not probed. These
+   are caveats, not gate blockers.
+4. **Output containing `error`/`FAIL`/`0/N`?** Only in negative controls: tampered trace
+   `599/600 … MISMATCH` (expected) and the earlier pure-Lua blocker (now bypassed by the
+   engine). The clean gate commands are all exit 0 with no error text beyond `[PORTDIAG]`.
+5. **All new files explainable / binaries recorded?** Engine source and the LuaJIT FFI lib are
+   in `D:\NativePort2\slotbound-engine`; the trace is a named canonical artifact; no new
+   downloads were introduced by this verification. The pre-existing `artifacts.sha256`
+   duplicate/MISSING hygiene issue is unchanged and belongs to the coordinator.
+6. **Reproducible from clean checkout?** Yes — the six commands in the table were re-run from
+   a clean shell in a fresh release build and reproduced verbatim (modulo the stale 3-vs-4
+   count and boot-time variance).
 
-**3. Are there untested error paths, empty results, or zero-length outputs?**
-Yes, several material ones:
-- The shipped fixture defines only `love.load` and `add`; the headless stub intentionally
-  defines no callbacks (`src/codegen_lua.rs:443-444`), so `apply_event` returns `false` and
-  **every one of the six frame event kinds is skipped** in the ledger's 12/12 run. The
-  event-application path — the core of a "game harness" — is never exercised by the shipped
-  fixture. Distinct hashes come from the `frame` field and stub timer probes, not game state.
-  A verifier probe that added `love.update` to a temp copy still gave 12/12 HASH EQUALITY OK,
-  proving the mechanism works but also proving the shipped fixture does not test it.
-- `game-replay` silently skips trace lines where `rec.frame` is falsy or decode fails
-  (`if type(rec) == 'table' and rec.frame then`); no malformed/empty-trace test. An empty
-  trace would report `0/0 frames match: MISMATCH` via a path never tested.
-- `MAX_DEPTH = 8` cycle marker and sorted-key canonicalization in `HASH_LUA` are implemented
-  but exercised only via `hash_string` scalar vectors; no nested/cyclic-table unit test.
-- The negative control tests exactly one mutation (a new scalar global); no test that a
-  changed *game-state table* is detected.
-- The `fail()` branch when `io.open(summary_path)` fails is untested.
-- The real-game failure path was reproduced but not diagnosed or fixed (out of R4 scope, but
-  it is the gate).
+## Forward items (not R4 blockers)
 
-**4. Does any command output contain `error`, `FAIL`, `0/N` with N>0, or a silent fallback?**
-Yes. Real-game record: `error: love.load: … effects.lua:0: attempt to compare number with nil`
-(exit 2). Negative control: `0/12 frames match: MISMATCH` (by design). Full artifact sweep:
-3 `MISMATCH` lines (stale duplicates) and 8 `MISSING` lines. Silent fallbacks: `apply_event`
-returns `false` with no diagnostic when a callback is absent; `runtime()` falls back from
-`luajit` to `lua` silently; `run_driver()` prefers the summary's `error` field over raw
-stderr. The PowerShell `NativeCommandError` wrappers on stderr redirects are harness noise,
-not cargo errors (both cargo runs exited 0).
+Apply NOTES 1–7; then R5/R6 can consume the canonical trace at
+`D:\NativePort2\port\verify-r4-trace.json` as the real-game reference session.
 
-**5. Are all new files explainable and all downloaded binaries recorded with source URL + hash?**
-R4-owned new/changed files (`src/game_harness.rs`, `src/main.rs`, `src/lib.rs`) are hashed and
-MATCH, and the LuaJIT download has a URL + SHA-256 in `artifacts.sha256`. Verifier temp
-artifacts (trace JSONL, fixture copies, `r4_real_*` captures) were created only under
-`C:\Users\Admin\AppData\Local\Temp\r4_verify_*` / `r4_real_*` and never in the fork. However
-the artifacts ledger as a whole is not clean (3 stale duplicate mismatches, 8 unexplained
-scratch-crate paths), so the "all downloaded binaries / all new files" claim cannot be
-endorsed at ledger level.
-
-**6. Can the phase deliverable be reproduced from a clean checkout with only the documented
-commands?**
-Partially. The fixture E2E (build, record, replay, negative control) reproduces exactly — I
-re-ran it in a clean temp directory. The phase *deliverable* cannot: the transcript uses
-`<fixture>` and `...` placeholders rather than exact commands, the test count is stale
-(186 vs 189), no canonical trace/stub config is saved, and the real-game session is not
-reproducible at all because load fails in `effects.lua`.
-
-## Negative sweep
-
-No `TODO|FIXME|unimplemented|placeholder|not implemented|stub` was introduced by the
-verifier. The ledger's negative sweep is a prose assertion ("Clippy clean; no stubs in fork
-source") with no `grep` transcript; the headless no-op substitute is a test double, which is
-acceptable for the mechanism but is the reason the real-game gate is unmet.
-
-## Conditions that would flip this verdict to PASS
-
-1. Load the real game headlessly (resolve the `effects.lua` stub/nil-comparison fidelity
-   gap, then any further gaps) and record a genuine 10–30 s deterministic session from
-   `D:\NativePort2\Slotbound\port\game`, with the trace and input schedule saved under
-   `evidence/`; replay it to `HASH EQUALITY OK` with every frame matching.
-2. Ship a canonical replay log, input trace and stubbed-renderer config as named evidence
-   artifacts (not temp paths).
-3. Add a fixture or real-game case whose update/draw/input callbacks actually execute and
-   mutate hashed state, so the event-application path is covered.
-4. Correct the ledger's stale `186 passed` → `189 passed` and the 95k-line description, and
-   save a verbatim command transcript.
-5. Obtain explicit coordinator/user acceptance of any gate amendment; the implementer alone
-   cannot re-scope §9.
-6. Re-run this verifier with the above in place.
-
-Until then R4 is **FAIL / reopened**.
+**Verdict: PASS-WITH-NOTES — R4 closed under the user-approved §9.1 hybrid re-scope.**

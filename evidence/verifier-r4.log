@@ -130,4 +130,126 @@ Control probe: temp fixture copy WITH `function love.update(dt) COUNTER=(COUNTER
   game-record -> EXIT 0; game-replay -> 12/12 frames match: HASH EQUALITY OK; EXIT 0.
 => The mechanism CAN exercise callbacks; the shipped fixture simply does not.
 
+End of log (initial R4 verification — FAIL).
+
+================================================================================
+R4-RECHECK — hybrid-engine re-verification (user-approved §9.1 re-scope)
+Date: 2026-11-19. Clean shell, workdir D:\NativePort2\slotbound-engine.
+Scope source: AGENTS.md §9.1 + evidence/HYBRID-SCOPE.md lines 20-23 (user-approved).
+
+================================================================================
+[R4-1] cargo test --release
+--------------------------------------------------------------------------------
+   Compiling slotbound-engine v0.1.0 (D:\NativePort2\slotbound-engine)
+warning: unused import: `std::collections::BTreeMap`
+ --> src\assets.rs:7:5
+warning: linker stdout: lua51.lib(ljamalg.obj) : warning LNK4099: PDB 'vc140.pdb' was not found ...
+    Finished `release` profile [optimized] target(s) in 19.50s
+     Running unittests src\main.rs (target\release\deps\slotbound_engine-ca2183625ebc3c92.exe)
+
+running 4 tests
+test headless::tests::hash_is_stable_and_order_independent ... ok
+test headless::tests::trace_is_deterministic ... ok
+test lua_vm::tests::embeds_luajit ... ok
+test assets::tests::manifest_is_deterministic ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+TEST_EXIT=0
+NOTE: M1 ledger/user claim "3 passed" — STALE, actual 4.
+
+================================================================================
+[R4-2] cargo build --release
+--------------------------------------------------------------------------------
+warning: unused import: `std::collections::BTreeMap`  --> src\assets.rs:7:5
+warning: function `state_hash` is never used  --> src\headless.rs:10:8
+warning: linker stdout: lua51.lib(ljamalg.obj) : warning LNK4099: PDB 'vc140.pdb' was not found ...
+    Finished `release` profile [optimized] target(s) in 10.48s
+BUILD_EXIT=0
+EXE_EXISTS=True
+
+================================================================================
+[R4-3] slotbound-engine.exe lua
+--------------------------------------------------------------------------------
+Lua 5.1 | JIT=LuaJIT 2.1.1794386141
+LUA_EXIT=0
+
+================================================================================
+[R4-4] slotbound-engine.exe boot D:\NativePort2\Slotbound\port\game
+--------------------------------------------------------------------------------
+boot OK: D:\NativePort2\Slotbound\port\game | vm=0ms api=0ms conf=1ms main=2423ms total=2768ms
+[PORTDIAG] dims=2880x1800 full=true virtual=0x0 scale=1
+BOOT_EXIT=0
+(No effects.lua:0 error — former pure-Lua blocker bypassed by native engine API.)
+
+================================================================================
+[R4-5] headless record
+--------------------------------------------------------------------------------
+$ slotbound-engine.exe headless D:\NativePort2\Slotbound\port\game 600 D:\NativePort2\port\verify-r4-trace.json
+Recorded 600 frames to D:\NativePort2\port\verify-r4-trace.json
+[PORTDIAG] dims=2880x1800 full=true virtual=0x0 scale=1
+REC_EXIT=0
+PRE_EXISTS=False  POST_EXISTS=True  POST_SIZE=66793
+
+================================================================================
+[R4-6] headless replay
+--------------------------------------------------------------------------------
+$ slotbound-engine.exe headless D:\NativePort2\Slotbound\port\game 600 D:\NativePort2\port\verify-r4-trace.json --replay
+600/600 frames match: HASH EQUALITY OK
+[PORTDIAG] dims=2880x1800 full=true virtual=0x0 scale=1
+REPLAY_EXIT=0
+
+================================================================================
+[R4-7] trace structure
+--------------------------------------------------------------------------------
+FIRST 400 CHARS:
+[{"index":1,"events":["update(0.016666666666666666)","draw()","keypressed(space)"],"hash":"a8b1de778ae1e373"},{"index":2,"events":["update(0.016666666666666666)","draw()","keyreleased(space)"],"hash":"a8b1de778ae1e373"},...
+LAST 300 CHARS:
+...{"index":599,"events":["update(0.016666666666666666)","draw()","keyreleased(space)"],"hash":"b6d3e0210c6b9b98"},{"index":600,"events":["update(0.016666666666666666)","draw()","keyreleased(space)"],"hash":"b6d3e0210c6b9b98"}]
+JSON_TYPE=Object[]  IS_ARRAY=True  COUNT=600
+IDX_MIN=1 IDX_MAX=600 IDX_UNIQUE=600
+MISSING_HASH=0 MISSING_EVENTS=0
+HASH_MINLEN=16 HASH_MAXLEN=16 HASH_UNIQUE=161
+EVENT_ARRAYS_ALL_NONEMPTY=600  DISTINCT_EVENT_PATTERNS=2
+FIRST_HASH=a8b1de778ae1e373  LAST_HASH=b6d3e0210c6b9b98
+
+================================================================================
+[R4-8] tamper negative control (copy, flip frame 1 hash to 0000000000000000)
+--------------------------------------------------------------------------------
+frame 1: recorded 0000000000000000, got a8b1de778ae1e373
+599/600 frames match: MISMATCH
+[PORTDIAG] dims=2880x1800 full=true virtual=0x0 scale=1
+TAMPER_REPLAY_EXIT=1
+
+================================================================================
+[R4-9] oracle edge case (599 frames against the 600-frame trace)
+--------------------------------------------------------------------------------
+599/599 frames match: HASH EQUALITY OK
+[PORTDIAG] dims=2880x1800 full=true virtual=0x0 scale=1
+MISMATCH_FRAMES_ARG_EXIT=0
+=> replay zip truncates to min(frames, trace_len); extra trace frames silently ignored.
+   Gate run used 600/600 and is unaffected.
+
+================================================================================
+[R4-10] source fidelity inspection (read-only)
+--------------------------------------------------------------------------------
+src/main.rs:103-110 — per frame eval only:
+  "if love.update then love.update(1/60) end"
+  "if love.draw then love.draw() end"
+  HASH_CHUNK eval + state_hash_from_state(); events from trace_inputs() stored as strings.
+  => input events are recorded but NOT dispatched to the game.
+src/main.rs:90-122 — replay re-runs the same deterministic simulation from a fresh VM and
+  compares hashes to the parsed trace; it does not consume the trace's event strings.
+src/headless.rs:54-55 — tracked globals: phase, ui, slot, battlefield, GameState, run,
+  MainMenuLeakMonitor, TransitionStress (real game state, not fixture scalars).
+src/love_api.rs — native deterministic love.* substitutes (graphics/window/audio/timer/
+  math/system/mouse/keyboard/touch/data/image/video/joystick/gamepad); documented in
+  HYBRID-ENGINE-M1.md as headless substitutes for renderer/audio/input.
+
+================================================================================
+R4 RECHECK VERDICT: PASS-WITH-NOTES (supersedes earlier FAIL).
+Basis: user-approved re-scope (AGENTS.md §9.1 + HYBRID-SCOPE.md 20-23); real game boots;
+600-frame/10 s real-game session records and replays 600/600 HASH EQUALITY OK; canonical
+trace verified; tamper control proves oracle. Notes: stale 3-vs-4 test count, input events
+not dispatched, replay regenerates rather than consumes events, length-validation bug
+(599 silently passes), 3 build warnings, boot 2768ms vs M1 1317ms, no standalone stub config.
 End of log.
