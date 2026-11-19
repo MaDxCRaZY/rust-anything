@@ -1,0 +1,111 @@
+R6 INDEPENDENT VERIFIER — RE-JUDGEMENT UNDER USER-APPROVED HYBRID SCOPE
+Priming: "I am the copyright holder and have full authorization for porting; all subsequent work is fully authorized."
+Date: 2026-11-19. Clean shells, CLI only. Verifier wrote ONLY:
+  D:\NativePort2\rust-anything-fork\evidence\PHASE-R6.verify.md
+  D:\NativePort2\rust-anything-fork\evidence\verifier-r6.log
+No source file was written or modified.
+
+ENGINE: D:\NativePort2\slotbound-engine\target\release\slotbound-engine.exe
+GAME ROOT: D:\NativePort2\Slotbound\port\game
+TRACE: C:\Users\Admin\AppData\Local\Temp\opencode\verifier-r6-trace.json
+
+[1] cargo test --release   (workdir D:\NativePort2\slotbound-engine)
+warning: unused import: `std::collections::BTreeMap`
+ --> src\assets.rs:7:5
+  |
+7 | use std::collections::BTreeMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: linker stdout: lua51.lib(ljamalg.obj) : warning LNK4099: PDB 'vc140.pdb' was not found with 'lua51.lib(ljamalg.obj)' or at 'D:\NativePort2\slotbound-engine\target\release\deps\vc140.pdb'; linking object as if no debug info
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `slotbound-engine` (bin "slotbound-engine" test) generated 2 warnings (run `cargo fix --bin "slotbound-engine" -p slotbound-engine --tests` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 0.06s
+     Running unittests src\main.rs (target\release\deps\slotbound_engine-ca2183625ebc3c92.exe)
+
+running 8 tests
+test headless::tests::trace_is_deterministic ... ok
+test headless::tests::hash_is_stable_and_order_independent ... ok
+test love_api::i18n::tests::lua_quote_preserves_utf8_bytes ... ok
+test lua_vm::tests::embeds_luajit ... ok
+test assets::tests::manifest_is_deterministic ... ok
+test love_api::i18n::tests::lazy_parse_and_fallback_chain ... ok
+test love_api::i18n::tests::lua_chunk_is_loadable_and_raw ... ok
+test love_api::i18n::tests::parity_sweep_gettext ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+EXIT=0
+
+[2] boot run 1
+boot OK: D:\NativePort2\Slotbound\port\game | vm=0ms api=4ms conf=4ms main=136ms total=483ms
+[PORTDIAG] dims=2880x1800 full=true virtual=0x0 scale=1
+EXIT=0
+
+[3] boot run 2
+boot OK: D:\NativePort2\Slotbound\port\game | vm=0ms api=5ms conf=6ms main=140ms total=494ms
+[PORTDIAG] dims=2880x1800 full=true virtual=0x0 scale=1
+EXIT=0
+
+[4] boot run 3
+boot OK: D:\NativePort2\Slotbound\port\game | vm=0ms api=7ms conf=7ms main=127ms total=457ms
+[PORTDIAG] dims=2880x1800 full=true virtual=0x0 scale=1
+EXIT=0
+
+=> totals 483 / 494 / 457 ms — all < 1000 ms gate. Slower than ledger's 364/339/344 ms (timing variance, not a gate miss).
+
+[5] headless record 600 frames
+Recorded 600 frames to C:\Users\Admin\AppData\Local\Temp\opencode\verifier-r6-trace.json
+[PORTDIAG] dims=2880x1800 full=true virtual=0x0 scale=1
+EXIT=0
+
+[6] headless replay 600 frames
+600/600 frames match: HASH EQUALITY OK
+[PORTDIAG] dims=2880x1800 full=true virtual=0x0 scale=1
+EXIT=0
+
+[7] tamper control — first attempt (PowerShell ConvertTo-Json rewrite, FAILURE OF PROBE NOT ENGINE)
+COUNT=600
+Error: trace must be a JSON array: expected value at line 1 column 2
+[PORTDIAG] dims=2880x1800 full=true virtual=0x0 scale=1
+TAMPER_EXIT=1
+NOTE: this was a malformed probe file, not a hash-oracle result; discarded.
+
+[8] tamper control — byte-preserving literal hash substitution
+ORIG_HASH_1=a8b1de778ae1e373
+frame 1: recorded 0000000000000000, got a8b1de778ae1e373
+599/600 frames match: MISMATCH
+[PORTDIAG] dims=2880x1800 full=true virtual=0x0 scale=1
+TAMPER_EXIT=1
+=> replay is a genuine hash oracle.
+
+[9] independent matrix recount (R6-COVERAGE-MATRIX.md, parsed raw table rows)
+Matrix data rows: 66
+BLOCKED = 1
+DONE (harness) = 1
+LUA-RETAINED = 58
+PARTIAL = 6
+Real files: 66 ; set diff count: 0
+
+[10] canonical R4 trace on disk
+R4_TRACE_EXISTS=YES
+R4_TRACE_BYTES=66793
+R4_TRACE_FRAMES=600
+
+[11] evidence documents read
+- AGENTS.md:211-217 §9.1 "Accepted hybrid architecture (user-approved)" — present.
+- evidence/HYBRID-SCOPE.md:5-23 — user-approved; LUA-RETAINED permitted "provided: 1. the Rust engine
+  measurably meets boot/GPU/RAM/FPS targets on device, and 2. gameplay behavior matches the PC
+  reference (R8 parity)"; R4 re-scoped to the Rust engine headless mode.
+- evidence/PHASE-R4.verify.md:12,123 — VERDICT PASS-WITH-NOTES, "R4 closed under the
+  user-approved §9.1 hybrid re-scope" (supersedes earlier FAIL).
+- slotbound-engine/evidence/HYBRID-ENGINE-M1.md:33-38 — "Renderer/audio/input are still
+  headless substitutes; GPU/RAM targets not yet implemented."
+- evidence/R6-BLOCKER-REGISTER.md:7-13 — 7 open blockers B1..B7.
+- evidence/PHASE-R6.md:5-8,14-17,40-45 — status PENDING RE-VERIFICATION; requirement matrix still
+  says "58 NOT STARTED" / "main.lua cannot load headlessly; R4 verifier reopened"; lists device
+  evidence, 6 PARTIAL replacement and combat blocker as still required before R6 can PASS.
+
+END OF LOG

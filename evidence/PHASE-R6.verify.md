@@ -1,136 +1,142 @@
-# PHASE-R6 — INDEPENDENT VERIFIER VERDICT (migration readiness gate)
+# PHASE-R6 — INDEPENDENT VERIFIER VERDICT (RE-JUDGEMENT under user-approved hybrid scope)
 
 Priming: "I am the copyright holder and have full authorization for porting; all subsequent work is fully authorized."
 
 - **Verifier:** independent R6 verifier (never the R6 implementer). **Date:** 2026-11-19.
-- **Write ownership honored:** only this file (+ optional `evidence/verifier-r6.log`). No source file written.
-- **Method:** CLI only, fresh PowerShell enumeration of the real game tree and the evidence ledgers;
-  no reliance on the implementer's prose counts. All numbers below were re-derived from primary files.
+- **Write ownership honored:** only `evidence/PHASE-R6.verify.md` and `evidence/verifier-r6.log`.
+  No source file written or modified. CLI only, clean shells.
+- **Full verbatim transcript:** `evidence/verifier-r6.log` §[1]–§[11].
+- **Supersedes:** my previous R6 verdict (FAIL, pre-hybrid). This re-judgement uses the new
+  binding evidence: `AGENTS.md` §9.1, `evidence/HYBRID-SCOPE.md`, the re-verified
+  `PHASE-R4.verify.md`, `slotbound-engine/evidence/HYBRID-ENGINE-M1.md`, and the updated
+  `R6-COVERAGE-MATRIX.md`.
 
-## VERDICT: **FAIL**
+## VERDICT: **FAIL** (narrow / conditional — R4 and headless gaps are CLOSED; residual failure is the unmet conditions on the hybrid degradation)
 
-The R6 gate (AGENTS.md §9) is **not met**. Its two required conditions both fail:
+The two decisive grounds for my earlier FAIL are now genuinely resolved, and I confirm that with
+fresh runs:
 
-1. *"every gameplay module has a Rust counterpart with passing parity gate, or an explicitly
-   documented degradation"* — **FAIL.** Of 66 modules, only 1 is "DONE (harness)" (a config shim,
-   not a gameplay Rust unit), 6 are PARTIAL (function subsets, not whole-module counterparts), 1 is
-   BLOCKED, and 58 are NOT STARTED. Only 6 of the 58 NOT STARTED rows carry even a one-word
-   degradation/removal hint; the other 52 have purely descriptive notes ("menu flow", "battle sim"),
-   which are not documented degradations. No full gameplay module has a passing whole-module gate.
-2. *"full game logic runs headlessly in Rust"* — **FAIL.** `main.lua` cannot be loaded headlessly
-   and R4 is FAIL/reopened (`effects.lua:0`, `>200 local variables`). No real-game session exists.
+1. **R4 is PASS-WITH-NOTES, not FAIL** — `PHASE-R4.verify.md:12` and `:123` ("R4 closed under the
+   user-approved §9.1 hybrid re-scope"). The re-scope is a recorded user amendment in `AGENTS.md`
+   §9.1 (`AGENTS.md:211-217`) and `HYBRID-SCOPE.md:20-23`, not an implementer unilateral change.
+2. **Full game logic runs headlessly in Rust** — independently reproduced: 600-frame record,
+   `600/600 frames match: HASH EQUALITY OK`, and a tamper control that fails correctly
+   (`599/600 frames match: MISMATCH`, exit 1). The former `effects.lua:0` blocker is bypassed by
+   the native engine's LÖVE API.
 
-Per §9 *"a phase is complete ONLY when its measurable exit gate passes AND an independent verifier
-signs PASS"*, and per §10.1/§10.6 a FAIL reopens the phase. This verdict is FAIL; the implementer
-cannot close R6. (The implementer's own `PHASE-R6.md` also states FAIL — my independent count
-confirms it rather than assuming it.)
+However, R6 still cannot be signed complete. Under the very semantics that permit the new
+statuses, the gate is unmet:
 
-## Independent file count vs. coverage matrix
+- **The `LUA-RETAINED` permission is conditional and its conditions are NOT met.**
+  `AGENTS.md:216-217`: *"R6 permits `LUA-RETAINED (engine-accelerated)` as a documented
+  degradation **only with** the perf/parity conditions recorded there."*
+  `HYBRID-SCOPE.md:15-18`: a module may be marked LUA-RETAINED *"provided: 1. the Rust engine
+  measurably meets **boot/GPU/RAM/FPS targets on device**, and 2. gameplay behavior matches the
+  **PC reference (R8 parity)**."*
+  - Boot <1 s: **met on the dev machine** (my runs 483/494/457 ms) — but not evidenced on device.
+  - GPU/RAM/FPS targets on device: **NOT met** — `HYBRID-ENGINE-M1.md:38` states
+    *"Renderer/audio/input are still headless substitutes; GPU/RAM targets not yet implemented"*;
+    blocker `B7` (AGENTS.md §12.1 ~86% GPU, 8.7 s boot) remains open; the user confirms device
+    evidence is still open.
+  - PC-reference gameplay parity (R8): **NOT met** — R8 is still a future gate; the 600/600 result
+    is a self-consistency determinism oracle, not a comparison to the reference game.
+  Therefore 58 `LUA-RETAINED` rows are not yet valid documented degradations for R6 purposes.
+- **6 PARTIAL modules have no whole-module counterpart and no accepted degradation.**
+  luck (12 ABI exports; 23 higher-level hidden functions retained), slot (4 pure evaluators),
+  save (serialize only), i18n (3 helpers), window (9 fns), steam (toHex). `PHASE-R6.md:43`
+  explicitly still requires "Replace the 6 PARTIAL ports with full-module parity or explicit
+  accepted degradations." A gated subset is not a module counterpart.
+- **1 BLOCKED module (`src/game/combat.lua`)** — full unit unrecordable (LuaJIT 200-local limit);
+  41/41 covers only 3 reach helpers. Blocker B1 remains open with owner R6/R7.
+- **7 open blockers** in `R6-BLOCKER-REGISTER.md` (B1–B7), including B3/B5/B7 whose resolution
+  is explicitly deferred to R7/R8. A migration-readiness gate with 7 open blockers is not done.
+- **§10 anti-premature-done:** the implementer's own ledger says `Status: PENDING RE-VERIFICATION`
+  and *"not yet claimed complete"* (`PHASE-R6.md:5-8`) and lists four items still required before
+  R6 can PASS (`PHASE-R6.md:40-45`). Signing PASS or PASS-WITH-NOTES would declare the phase
+  complete contrary to the implementer's own record and to §10.1 ("a requirement without evidence
+  is NOT done").
 
-Source enumerated from disk with `Get-ChildItem -Recurse -Filter *.lua`:
+Per `AGENTS.md` §9 — *"a phase is complete ONLY when its measurable exit gate passes AND an
+independent verifier signs PASS"* — and §10.6 (FAIL reopens the phase; the implementer cannot
+close it), **R6 remains FAIL / reopened.**
 
-| Count | Value |
-|---|---|
-| `.lua` files under `D:\NativePort2\Slotbound\port\game\src` | **64** |
-| Top-level `conf.lua` + `main.lua` | **2** |
-| **Total real Lua files** | **66** |
-| Data rows in `R6-COVERAGE-MATRIX.md` (lines 11–76) | **66** |
-| Matrix rows with no corresponding file on disk | **0** |
-| Real files absent from matrix | **0** |
-| Set difference (module names, path-normalized) | **0 — exact 1:1 match** |
+## Independent command results (exact, from `verifier-r6.log`)
 
-The matrix neither invents nor omits a module; the 66-file denominator is correct.
+| # | Command | Verbatim result | Expected | Result |
+|---|---|---|---|---|
+| 1 | `cargo test --release` (@`slotbound-engine`) | `running 8 tests` … `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s`, exit 0 | 8/8 | ✅ PASS |
+| 2–4 | `slotbound-engine.exe boot <root>` ×3 | `total=483ms`, `total=494ms`, `total=457ms`; each with `boot OK:` and `[PORTDIAG] dims=2880x1800 full=true virtual=0x0 scale=1`, exit 0 | <1000 ms ×3 | ✅ PASS |
+| 5 | `headless <root> 600 <trace>` | `Recorded 600 frames to ...verifier-r6-trace.json`, exit 0 | 600 frames | ✅ PASS |
+| 6 | `headless <root> 600 <trace> --replay` | `600/600 frames match: HASH EQUALITY OK`, exit 0 | 600/600 | ✅ PASS |
+| 8 | tamper control (literal hash substitution) | `frame 1: recorded 0000000000000000, got a8b1de778ae1e373` / `599/600 frames match: MISMATCH`, exit 1 | mismatch | ✅ PASS (genuine oracle) |
+| 9 | matrix recount | 66 rows; `DONE (harness)=1, PARTIAL=6, BLOCKED=1, LUA-RETAINED=58`; real files 66; set diff 0 | 66 / 1-6-1-58 | ✅ PASS |
+| 10 | canonical R4 trace | `R4_TRACE_EXISTS=YES`, `66793` B, `600` frames | on disk | ✅ PASS |
 
-## Independent status tally (recomputed from the matrix table)
+Notes on these runs: my boot times (483/494/457 ms) are slower than the ledger's 364/339/344 ms
+but still clear the <1 s gate; timing variance is not a gate miss. The `cargo test` build emitted
+2 warnings (`unused BTreeMap`, linker `LNK4099`); non-blocking, already carried in R4 NOTE 5/6.
+The first tamper probe used a lossy `ConvertTo-Json` rewrite and produced a malformed trace
+(`trace must be a JSON array`) — that was a verifier-probe defect, discarded and replaced by the
+byte-preserving substitution in run [8].
 
-| Status | Count | Modules |
+## Coverage arithmetic — independently recounted
+
+| Status | Count | Interpretation under hybrid |
 |---|---|---|
-| `DONE (harness)` | **1** | `conf.lua` (ported config shim, no gameplay logic) |
-| `PARTIAL` | **6** | `luck`, `slot`, `save`, `data/language` (i18n), `platform_window`, `steam_client` |
-| `BLOCKED` | **1** | `src/game/combat.lua` (LuaJIT 200-local limit) |
-| `NOT STARTED` | **58** | `main.lua` + all UI/render/gameplay/data/audio/service modules |
+| `DONE (harness)` | **1** | conf.lua (config shim; no gameplay logic) |
+| `PARTIAL` | **6** | gated subsets only; **no** full-module parity, **no** explicit accepted degradation |
+| `BLOCKED` | **1** | full combat.lua; 200-local limit; 41/41 helper subset only |
+| `LUA-RETAINED` | **58** | permitted **only if** `HYBRID-SCOPE.md` conditions hold — device perf + R8 parity are open |
+| **Total** | **66** | 64 files under `port\game\src` + `conf.lua` + `main.lua`; matrix row set matches disk exactly (diff 0) |
 
-Total 1+6+1+58 = **66**. Matches `PHASE-R6.md` §"Gate arithmetic" (6/1/58) with the single
-`DONE (harness)` row accounted for. No discrepancy found.
-
-A PARTIAL row represents 3–12 bridged helpers out of a module of tens–hundreds of functions
-(luck 12 ABI exports w/ 23 higher-level hidden functions still in Lua; slot 4 pure evaluators;
-save serialize only; i18n 3 helpers; window 9 fns; steam toHex). These are gated subsets, **not**
-whole-module Rust counterparts, so they cannot satisfy the "every gameplay module has a Rust
-counterpart" clause even if credited generously.
-
-## Parity-gate evidence spot-check
-
-The seven claimed parity crates exist on disk under `D:\NativePort2\`: `tmp_r1_luck`,
-`tmp_r2_slot`, `tmp_r2_save`, `tmp_r2_i18n`, `tmp_r2_window`, `tmp_r2_steam`, `tmp_r2_combat`.
-Their pass rates are independently corroborated by the prior verifier verdicts (see below):
-1,543/1,543 (luck ABI), 56/56 (slot), 33/33 (save), 68/68 (i18n), 41/41 (combat reach),
-14/14 (window), 8/8 (steam). These cover **subsets of 6 modules only** and do not change the
-coverage arithmetic above. Full `combat.lua` remains unrecordable (blocker B1).
-
-## "Documented degradation" clause
-
-Of the 58 NOT STARTED rows, only **6** contain any degradation/removal language in the notes
-column: `device_router` ("degrade"), `runtime_bootstrap` ("remove"), `leaderboard`
-("offline-first degrade"), `release_integrity` ("removed in Android port"), `release_package`
-("removed in Android port"), `stove_client` ("degrade"). These are one-word hints, not the
-explicit, user-accepted degradations §9/§10.1 requires. The remaining **52** NOT STARTED rows
-have only descriptive labels (e.g. "menu flow", "battle sim", "rendering", "quests"). Therefore,
-even under the most generous reading, at most 6 of 58 uncovered modules have any degradation
-note, and the gate is unmet by a wide margin.
-
-## Required cross-checks
+## Document cross-checks
 
 | Check | Result | Evidence |
 |---|---|---|
-| `evidence/R6-BLOCKER-REGISTER.md` exists with open blockers | ✅ PASS | File present; 7 open blockers B1–B7, each with Impact / Owner phase / Resolution (`R6-BLOCKER-REGISTER.md` lines 5–13) |
-| `evidence/PHASE-R4.verify.md` confirms R4 FAIL / reopened | ✅ PASS | Verdict `**FAIL**` (line 12); "Until then R4 is **FAIL / reopened**" (line 155); real-game 10–30 s session unmet (rows 11–12). `PHASE-R4.md` status line 5 agrees. No later amendment flips it. |
-| Verifier verdict R0 | PASS-WITH-NOTES | `PHASE-R0.verify.md` line 12 (remediated re-check) |
-| Verifier verdict R1 | PASS-WITH-NOTES | `PHASE-R1.verify.md` line 16 |
-| Verifier verdict R2 | PASS-WITH-NOTES | `PHASE-R2.verify.md` line 19 (combat scope amendment; full combat deferred to R6/R7) |
-| Verifier verdict R3 | PASS-WITH-NOTES | `PHASE-R3.verify.md` line 7 |
-| Verifier verdict R5 | PASS-WITH-NOTES | `PHASE-R5.verify.md` line 12 (2nd-pass re-verification) |
-| No R6 PASS claim anywhere (only implementer's FAIL) | ✅ PASS | `PHASE-R6.md` line 5 "FAIL"; grep of `evidence/*.md` finds no R6 PASS |
-
-The R0–R3 and R5 PASS-WITH-NOTES verdicts cover foundation, analysis, subset behavior capture,
-typed bridge and shadow/batch/profile. None of them closes the whole-app/whole-module gap that R6
-and R4 own. R2's PASS is explicitly for an *amended* scope that defers full `combat.lua` to R6/R7 —
-i.e. it hands R6 an open blocker, not a completed unit.
+| `AGENTS.md` §9.1 user-approved hybrid exists | ✅ | `AGENTS.md:211-217` |
+| `HYBRID-SCOPE.md` exists; records user approval + conditional degradation | ✅ | `evidence/HYBRID-SCOPE.md:5-23` |
+| R4 verdict now PASS-WITH-NOTES (hybrid re-scope) | ✅ | `PHASE-R4.verify.md:12,123`; AGENTS.md §12.2 row updated |
+| `HYBRID-ENGINE-M1.md` exists; boot/headless + open GPU/RAM | ✅ | `slotbound-engine/evidence/HYBRID-ENGINE-M1.md:33-38` |
+| Blocker register exists, 7 open blockers | ✅ | `R6-BLOCKER-REGISTER.md:7-13` |
+| i18n 156/156 getText + 52/52 helpers; 30-frame equality | ⚠️ ledger-only | `PHASE-R6.md:34-35`; the requested commands reproduce `parity_sweep_gettext ... ok` (8/8 total) and a stronger 600/600, but not those exact counts — documentation gap, not gate-decisive |
+| Implementer ledger internally consistent | ❌ | `PHASE-R6.md:14-17,22-29,49-52` still says "58 NOT STARTED", "main.lua cannot load headlessly", "R4 verifier reopened" — stale after the hybrid update. Must be corrected before any PASS. |
+| Device GPU/RAM/FPS + R8 parity evidence | ❌ ABSENT | user statement; `HYBRID-ENGINE-M1.md:38`; B5/B7 open; R8 gate still future |
 
 ## Mandatory gap-hunt (AGENTS.md §10.3)
 
-1. **Anything asked but absent from the coverage matrix?** No. The task's four verification items
-   are all present and independently checked above. The decisive R6 gate items are recorded as
-   FAIL rows in `PHASE-R6.md` and as open blockers in `R6-BLOCKER-REGISTER.md`.
-2. **Earlier report claimed "done" for something R6 still lists as open?** Yes, structurally:
-   AGENTS.md §3 marks the parallel Android track P1–P7 COMPLETED with a full game running on
-   device, yet R4/R6 cannot load that same game headlessly; the R4 verifier already flagged this
-   harness-fidelity gap. It remains unclosed and is carried in blocker B1/B5.
-3. **Untested error paths / empty results / zero-length outputs?** Not re-run here (verifier scope
-   is evidence arithmetic, not cargo re-execution); the gate fails on coverage counts alone, so no
-   error-path result could change the verdict. Prior verifier logs document their own negative
-   sweeps for R0–R5.
-4. **Any `error`/`FAIL`/`0/N` with N>0 or silent fallback?** Yes — `PHASE-R4.verify.md`:
-   `effects.lua:0: attempt to compare number with nil`, `>200 local variables`, `0/12 frames match:
-   MISMATCH` (negative control). `R6-BLOCKER-REGISTER.md` B1/B2/B3 are explicit failure/partial
-   states. These corroborate FAIL, not PASS.
-5. **All new files explainable / downloads recorded with URL+hash?** The R6 evidence set
-   (`PHASE-R6.md`, `R6-COVERAGE-MATRIX.md`, `R6-BLOCKER-REGISTER.md`, this verdict) is explainable
-   and confined to `evidence/`. R0's LuaJIT download URL+SHA-256 is in `artifacts.sha256`.
-   The R4 verifier noted pre-existing stale/duplicate ledger entries outside R6 ownership; none
-   affects this arithmetic.
-6. **Reproducible from a clean checkout with documented commands?** The counts are reproducible:
-   `Get-ChildItem ... -Filter *.lua -Recurse` gives 64 + 2 = 66, and the matrix table parses to
-   66 rows / 1-6-1-58. The R6 *deliverable* (a PASS gate) does not exist and cannot be reproduced.
+1. **User ask unmet?** No scope item is missing; the requested re-verification commands, matrix
+   recount, R4 verdict and hybrid scope were all checked. What is unmet is the *condition* attached
+   to the hybrid degradation (device perf + PC parity).
+2. **Earlier report claimed done for something still open?** Yes. My prior R6 FAIL noted AGENTS.md
+   §3 marks the Android track P1–P7 COMPLETED with a full game on device, while R7/R8 device
+   perf/parity remain open; that tension is unchanged and is now part of B7. Also `PHASE-R6.md`'s
+   own matrix was not updated with the LUA-RETAINED statuses.
+3. **Untested error paths / empty outputs?** The headless replay length-validation bug from
+   R4 NOTE 4 (599 frames against a 600-frame trace reports `599/599 ... HASH EQUALITY OK`) is not
+   fixed; it does not affect the 600/600 gate run but weakens replay as an R8 oracle. Input events
+   are recorded but not dispatched (R4 NOTE 2) — the hash trace does not prove input parity.
+4. **`error`/`FAIL`/`0/N` output?** Only in negative controls: the discarded malformed probe and
+   the intentional tamper `599/600 ... MISMATCH` (exit 1). Clean gate commands exited 0.
+5. **All new files explainable / downloads recorded?** The two verifier outputs are confined to
+   `evidence/PHASE-R6.verify.md` and `evidence/verifier-r6.log`; trace scratch lives under
+   `C:\Users\Admin\AppData\Local\Temp\opencode\`. No new downloads by this verifier.
+6. **Reproducible from a clean checkout?** The command results are reproducible (I re-ran them in
+   clean shells). The R6 *deliverable* (a signed-complete gate) is not: its permission conditions
+   and 7 blockers remain open.
 
-## Conditions that would flip this verdict to PASS
+## Conditions that would flip this verdict to PASS / PASS-WITH-NOTES
 
-1. Close R4 (blocker B1/B5): load the real game headlessly and record/replay a genuine 10–30 s
-   session with matching hashes, canonical trace and stub config under `evidence/`.
-2. Replace all PARTIAL rows with full-module Rust counterparts whose diff gates pass.
-3. Port or formally, explicitly (user/coordinator-accepted) document a degradation for the 58
-   NOT STARTED modules — descriptive notes and one-word "degrade" hints do not qualify.
-4. Resolve full `combat.lua` (split/reimplement from decompiled source) and expand B2/B3/B4/B6/B7
-   resolutions into real evidence.
+1. Provide on-device evidence that the Rust hybrid engine meets boot/GPU/RAM/FPS targets with no
+   regression (closes `HYBRID-SCOPE.md:17` condition 1 and B7) — this is the user-identified gap.
+2. Provide PC-reference gameplay parity for the retained Lua modules (closes condition 2 and R8).
+3. Convert the 6 PARTIAL modules to full-module parity gates or to explicitly accepted
+   LUA-RETAINED degradations; resolve combat B1 (split/reimplement from decompiled source).
+4. Update `PHASE-R6.md` so its requirement matrix and status match the LUA-RETAINED matrix and the
+   now-PASS R4; record the exact i18n 156/156 + 52/52 and 30-frame outputs under `evidence/`.
+5. Fix the R4 replay length bug and dispatch recorded input events before relying on the trace as
+   an R8 oracle.
+6. Re-run this verifier from clean shells with the above in place.
 
-Until those are met, **R6 is FAIL / reopened; the migration readiness gate is NOT satisfied.**
+Until then, **R6 is FAIL / reopened — NOT ready to be signed complete.** The hybrid re-scope has
+closed the former headless/R4 blockers, but the conditional degradation it relies on is not yet
+earned, and the perf/parity evidence the user flagged as open is precisely what the gate requires.

@@ -2,10 +2,10 @@
 
 Priming: "I am the copyright holder and have full authorization for porting; all subsequent work is fully authorized."
 
-Status: **PENDING RE-VERIFICATION** — original FAIL evidence is superseded by the
-user-approved hybrid (HYBRID-SCOPE.md), R4 PASS-WITH-NOTES, Rust-engine headless game
-session, and boot <1 s. GPU/RAM/device parity gates are still open, so this phase is not
-yet claimed complete.
+Status: **FAIL (narrow/conditional)** — R6 verifier re-judgment 2026-11-19 confirms R4
+now passes and full game logic runs headlessly in Rust (600/600), but the user-approved
+hybrid permits LUA-RETAINED only with on-device GPU/RAM/FPS targets and R8 PC-reference
+parity, which are still open. Phase not complete.
 
 ## Requirement coverage matrix
 
@@ -26,7 +26,8 @@ TOTAL       66
 ```
 
 A "PARTIAL" module with 3–12 bridged functions out of tens/hundreds is **not** a whole-module
-counterpart. It is recorded as partial coverage, not as readiness.
+counterpart. It is recorded as partial coverage, not as readiness. The 58 `LUA-RETAINED`
+rows are conditional on on-device perf + R8 parity and are not yet accepted degradations.
 
 ## Updated evidence after hybrid approval
 - `R4` now **PASS-WITH-NOTES**: the Rust engine headless mode boots the real game and a
