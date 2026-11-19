@@ -178,6 +178,11 @@ done.
 | Ruby | file or folder of module functions | a magnus extension under the original modules | a generated Ruby driver |
 | Java | package of `public static` methods | typed JNI and a generated binary wire, in wrapper classes with the original methods | a generated reflection driver |
 | Lua / LÖVE | `.lua` file or a LÖVE game (`conf.lua` + `main.lua`) | LuaJIT FFI over the C ABI: generated `lua/<lib>.lua` wrapper and JSON codec | LuaJIT running the original functions, with LÖVE callbacks as units |
+
+Lua has no static types, so `record` learns them from the values the original functions
+return. `luajit` (2.1+) or `lua` must be on `PATH` for `record`, `diff` and `bench`;
+`doctor` reports it. `analyze` and `bridge` generate the LuaJIT FFI wrapper and work
+without a Lua runtime.
 | PHP (preview) | folder of functions and `public static` methods | coming next: PHP FFI over a C ABI | whole apps today: `app record`, `app replay` and the front door, for CLIs and servers (`php -S`) |
 | C# (preview) | folder of `public static` methods | coming next: P/Invoke over a C ABI | whole apps today: `app record`, `app replay` and the front door, for CLIs and ASP.NET servers (`dotnet <app>.dll`) |
 
