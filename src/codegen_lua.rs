@@ -629,7 +629,13 @@ local function resolve(t)
     end
   end
   for _, mod in pairs(modules) do add(mod) end
-  add(_G)
+  -- Only expose globals for actual global exports. Otherwise the headless stub's
+  -- permissive __index would answer a bare method-name search with a no-op.
+  if recv == '_G' then
+    add(_G)
+  elseif recv == 'love' then
+    add(_G.love)
+  end
 
   -- Prefer real upvalue closures over the headless stub's permissive __index.
   for _, mod in pairs(modules) do
