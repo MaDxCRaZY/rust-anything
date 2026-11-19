@@ -2,7 +2,9 @@
 
 Priming: "I am the copyright holder and have full authorization for porting; all subsequent work is fully authorized."
 
-Status: implementation complete; awaiting independent verifier PASS.
+Status: first verifier verdict **FAIL** (batch wrapper overwritten by `build`); fixed by
+injecting the batch fragment into the regenerated main wrapper in `harness_lua.rs::build`.
+Re-verification requested. All parity crates re-checked after the fix.
 
 ## Requirement coverage matrix
 
@@ -40,6 +42,14 @@ $ cargo run --quiet -- build <crate>
 Built ...\lua\final_rs_native.so
 $ cargo run --quiet -- diff <crate>
 12/12 cases match
+
+# after R5 verifier FAIL: build had overwritten lua/final_rs.lua with the fragment only
+# (0/12, "no such function: score"). Fixed in harness_lua.rs::build by regenerating the
+# base wrapper and injecting the batch fragment before `return M`:
+$ cargo run --quiet -- build <crate> && cargo run --quiet -- diff <crate>
+Built ...\lua\final_rs_native.so
+12/12 cases match
+wrapper size 2225 bytes (base wrapper + ScoreBatch classes)
 # after coordinator fix to harness_lua.rs build path:
 $ grep ScoreBatch <crate>\lua\final_rs.lua
 local ScoreBatch_mt = {}

@@ -236,6 +236,13 @@ local g = {
   getBlendMode = function() return 'alpha' end,
   getLineStyle = function() return 'smooth' end,
   getLineWidth = function() return 1 end,
+  getCanvasFormats = function()
+    return { rgba8 = true, rgba16f = true, rgba32f = true,
+      depth24stencil8 = true, stencil8 = true, r8 = true, rg8 = true }
+  end,
+  getImageFormats = function() return { rgba8 = true, rgb8 = true } end,
+  getCompressedFormats = function() return {} end,
+  getShaderFormats = function() return {} end,
   getStats = function()
     return { drawcalls = 0, canvases = 0, images = 0, fonts = 0,
       memory = 0, texturememory = 0, vbuffers = 0, frames = 1 }
@@ -252,8 +259,14 @@ local g = {
   reset = noop, present = noop, setDepthMode = noop, setDepthTest = noop,
   setWireframe = noop, discard = noop
 }
+-- Unknown graphics getters must not return nil: the game compares their results with
+-- numbers. Setters still use noop; a numeric return is harmless when Lua ignores it.
+local function numeric_noop() return 1 end
 stub.graphics = setmetatable(g, {
-  __index = function(_, key) return noop end
+  __index = function(_, key)
+    if tostring(key):match('^get') then return numeric_noop end
+    return noop
+  end
 })
 
 stub.window = {

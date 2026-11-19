@@ -25,3 +25,5 @@ fa553bb3ce03498bad7f265effc8d1a236dbbc47f6a95625ea476821f1c607ff  src/profile.rs
 3e73bc38416e03354f3ba9833e643905ea0833a5b82dec27ee12811dfe84b334  src/harness_lua.rs
 06391c25080d6ba2f566b016023be4b1a202613b93000c9db1dab980dcabb05e  src/codegen_lua.rs
 46b7b4d4f51af441d489dc0cc8a5ee36f93a6941de6b26c7c15fda8cf3ee2377  src/lib.rs
+a1f4d90d6da0ce61c6b8912a9323999d4d14fe99fd665aa0764a9cf63437691b  src/harness_lua.rs (R5/R4 fix)
+d33af385546f75ceb850cec0048ed24b9efad5cb7186d612df1abd0710fab10b  src/codegen_lua.rs (R5/R4 fix)

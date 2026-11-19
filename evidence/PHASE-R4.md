@@ -2,8 +2,10 @@
 
 Priming: "I am the copyright holder and have full authorization for porting; all subsequent work is fully authorized."
 
-Status: harness mechanism complete and verified; **explicit scope amendment** for the real-game
-session requirement (see below). Awaiting independent verifier.
+Status: **FAIL (independent verifier, R4 reopened)**. The harness mechanism works on the
+fixture, but the binding gate requires a 10–30 s session from the real game; that was not
+delivered. A unilateral scope amendment is not acceptable under §9/§10 — see
+`PHASE-R4.verify.md` for the six conditions to flip the verdict.
 
 ## Requirement coverage matrix
 

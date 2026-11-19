@@ -1,0 +1,133 @@
+R4 INDEPENDENT VERIFIER — RAW COMMAND TRANSCRIPT
+Priming: "I am the copyright holder and have full authorization for porting; all subsequent work is fully authorized."
+Date: 2026-11-19
+Shell: PowerShell; every command run from D:\NativePort2\rust-anything-fork with
+  $env:PATH='D:\NativePort2\TOOLS\luajit\luajit-2.1.1794386141-windows-msvc-x64-static\bin;'+$env:PATH
+
+================================================================================
+[1] cargo test --lib
+--------------------------------------------------------------------------------
+running 189 tests
+... (189 individual `test ... ok` lines omitted here; full run captured live)
+test game_harness::tests::lua_fnv_matches_independent_reference_vectors ... ok
+test game_harness::tests::record_then_replay_a_whole_love_app_has_matching_hashes ... ok
+test result: ok. 189 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+EXITCODE=0
+NOTE: PHASE-R4.md claims "186 passed" — STALE. Actual is 189 passed, 0 failed.
+
+================================================================================
+[2] cargo clippy --all-targets -- -D warnings
+--------------------------------------------------------------------------------
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.46s
+EXITCODE=0
+(PowerShell emitted a NativeCommandError wrapper for cargo's stderr redirect; not a cargo error.)
+
+================================================================================
+[3] runtime confirmation
+--------------------------------------------------------------------------------
+$ luajit -v
+LuaJIT 2.1.1794386141 -- Copyright (C) 2005-2026 Mike Pall. https://luajit.org/
+LUAJIT_EXIT=0
+
+================================================================================
+[4] game-record on fixture (temp trace path)
+--------------------------------------------------------------------------------
+$ cargo run --quiet -- game-record tests/fixtures/lua_tiny --out C:\Users\Admin\AppData\Local\Temp\r4_verify_fixture\fixture-trace.jsonl --frames 12
+Recorded 12 frames to C:\Users\Admin\AppData\Local\Temp\r4_verify_fixture\fixture-trace.jsonl
+EXITCODE=0
+TRACE_EXISTS=True
+TRACE_LINES=12
+Trace line 1: {"events":[{"args":[0.016666666666666666],"fn":"update"},{"args":[],"fn":"draw"},{"args":["space"],"fn":"keypressed"}],"frame":1,"hash":"4f17f548bb4b9ee2"}
+
+================================================================================
+[5] game-replay on fixture (same trace)
+--------------------------------------------------------------------------------
+$ cargo run --quiet -- game-replay tests/fixtures/lua_tiny --trace C:\Users\Admin\AppData\Local\Temp\r4_verify_fixture\fixture-trace.jsonl
+12/12 frames match: HASH EQUALITY OK
+Trace: C:\Users\Admin\AppData\Local\Temp\r4_verify_fixture\fixture-trace.jsonl
+EXITCODE=0
+
+================================================================================
+[6] negative control — temp fixture copy + `SENTINEL = 123`, same trace
+--------------------------------------------------------------------------------
+modified main.lua:
+  local constants = require('src.data.constants')
+  function love.load() end
+  function add(a, b) return a + b end
+  SENTINEL = 123
+$ cargo run --quiet -- game-replay <temp-copy> --trace <same trace>
+0/12 frames match: MISMATCH
+  frame 1: recorded 4f17f548bb4b9ee2, got 29ddfc7f12243414
+  frame 2: recorded b299d520a39f4a87, got bd6f9abe2079dc09
+  frame 3: recorded 8e5d9d75ecf72788, got 6d66a7121ce360f6
+  frame 4: recorded 962c813cc0e7ab65, got 60ea15695150f393
+  frame 5: recorded 3639a56baaa2293e, got 270afc315b288350
+  frame 6: recorded 9abeea69d1bd4b33, got f1a19028d7d6bc05
+  frame 7: recorded 29df1aa35256cf74, got f9f096f1af0826f2
+  frame 8: recorded 63145665f4821dd1, got 6db9ca8e15c092af
+  frame 9: recorded 887d5c788858bbaa, got 20a0a10fd49d7f5c
+  frame 10: recorded d2b15ed728415a38, got 7ec44cf69b0cc186
+  frame 11: recorded e20d6392e043e237, got ade528d47f685499
+  frame 12: recorded a15c1655895a2852, got 7e4755de49abfee4
+Trace: C:\Users\Admin\AppData\Local\Temp\r4_verify_fixture\fixture-trace.jsonl
+EXITCODE=1
+Ledger's quoted frame-1 pair reproduced byte-for-byte.
+
+================================================================================
+[7] real-game blocker reproduction
+--------------------------------------------------------------------------------
+ROOT_EXISTS=True
+MAIN_EXISTS=True
+EFFECTS_EXISTS=True
+$env:RUST_ANYTHING_LUA_ROOT='D:\NativePort2\Slotbound\port\game'
+$ cargo run --quiet -- game-record D:\NativePort2\Slotbound\port\game --out <temp> --frames 12
+STDOUT: (empty)
+STDERR: error: love.load: D:\NativePort2\Slotbound\port\game/src\ui\effects.lua:0: attempt to compare number with nil
+EXITCODE=2   (main.rs:415 `ExitCode::from(2)` — documented CLI error path)
+
+decompiled module:
+  D:\NativePort2\Slotbound\Slotbound_analysis\decompiled_lua\src\ui\effects.lua
+  size=3,366,720 bytes, lines=76,573, header=EF BB BF 69 66 20 6A 69 (UTF-8 BOM + source)
+$ luajit -e "local c,e=loadfile([[...decompiled_lua\src\ui\effects.lua]]); print(c and 'LOAD_OK' or ('LOAD_ERR: '..tostring(e)))"
+LOAD_ERR: ...und\Slotbound_analysis\decompiled_lua\src\ui\effects.lua:6623: main function has more than 200 local variables
+EXITCODE=0
+NOTE: ledger says "95k-line decompiled module"; measured 76,573 lines (minor descriptive discrepancy).
+Port/game effects.lua header=1B 4C 4A 02 0A (LuaJIT bytecode, flags 0x0A) — real module is bytecode.
+
+================================================================================
+[8] artifact hashes
+--------------------------------------------------------------------------------
+R4 files (all MATCH):
+  src/game_harness.rs  want cb937f92...fa9782eefb got cb937f92...fa9782eefb MATCH
+  src/main.rs          want 58f1f411...fd897e  got 58f1f411...fd897e  MATCH
+  src/lib.rs           want 46b7b4d4...ee2377  got 46b7b4d4...ee2377  MATCH
+Download: LuaJIT zip URL + sha256=3f16e109...c06d360 present in artifacts.sha256 line 1.
+
+Full ledger sweep (not R4-owned, recorded for gap-hunt Q5):
+  3 STALE duplicate entries mismatch their older hash, while a later duplicate entry
+  for the SAME path matches the current file:
+    src/codegen_lua.rs want b7cb82bc... got 06391c25... (later entry 06391c25 MATCH)
+    src/harness_lua.rs want 2c37958a... got 3e73bc38... (later entry 3e73bc38 MATCH)
+    src/bridge.rs      want 6ba00359... got 40bd199d... (later entry 40bd199d MATCH)
+  8 MISSING paths relative to fork root: luck/, slot/, save/, i18n/, combat-reach/,
+    combat-crate/, window/, steam/ src/port.rs (scratch crates live in D:\NativePort2\tmp_r2_*).
+
+================================================================================
+[9] extra verifier probe — does the shipped fixture exercise input callbacks?
+--------------------------------------------------------------------------------
+Source inspection (src/game_harness.rs DRIVER_LUA apply_event, line 183-191):
+  `local target = type(fn)=='string' and _G.love and _G.love[fn] or nil`
+  `if type(target) ~= 'function' then return false end`
+src/codegen_lua.rs:443 `-- LÖVE callbacks (load, update, draw, conf, ...) are intentionally NOT set here.`
+src/codegen_lua.rs:444 `_G.love = stub`
+tests/fixtures/lua_tiny/main.lua defines ONLY `love.load` and global `add`.
+=> ALL 6 event kinds in make_events (update/draw/keypressed/keyreleased/mousepressed/
+   mousereleased/mousemoved) are SKIPPED in the shipped fixture E2E; the event-application
+   path is never exercised. Distinct per-frame hashes come from the `frame` field and
+   stub timer probes in state_snapshot(), not from game state.
+
+Control probe: temp fixture copy WITH `function love.update(dt) COUNTER=(COUNTER or 0)+dt end`:
+  game-record -> EXIT 0; game-replay -> 12/12 frames match: HASH EQUALITY OK; EXIT 0.
+=> The mechanism CAN exercise callbacks; the shipped fixture simply does not.
+
+End of log.
