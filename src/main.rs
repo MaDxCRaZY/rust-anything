@@ -205,6 +205,25 @@ enum Cmd {
         #[command(subcommand)]
         command: AppCmd,
     },
+    /// Record a deterministic frame trace of a whole LÖVE game under a headless runtime.
+    GameRecord {
+        /// Game root (directory containing conf.lua and main.lua).
+        root: PathBuf,
+        /// Where to write the JSONL frame trace.
+        #[arg(long, short)]
+        out: PathBuf,
+        /// Number of frames to simulate (default 12).
+        #[arg(long, default_value_t = 12)]
+        frames: usize,
+    },
+    /// Replay a recorded frame trace and verify every per-frame state hash matches.
+    GameReplay {
+        /// Game root (directory containing conf.lua and main.lua).
+        root: PathBuf,
+        /// The JSONL trace written by `game-record`.
+        #[arg(long)]
+        trace: PathBuf,
+    },
     /// Serve every step as MCP tools over stdio.
     Mcp,
     /// Register rust-anything with your coding agents (Claude Code, Codex, Cursor, Gemini CLI):
@@ -768,6 +787,44 @@ fn run() -> Result<ExitCode> {
                 );
             }
             if !outcome.passed {
+                return Ok(ExitCode::FAILURE);
+            }
+        }
+        Cmd::GameRecord { root, out, frames } => {
+            let path =
+                rust_anything::game_harness::record(&rust_anything::game_harness::RecordOptions {
+                    root: &root,
+                    out: &out,
+                    frames,
+                })?;
+            say!("Recorded {frames} frames to {}", path.display());
+        }
+        Cmd::GameReplay { root, trace } => {
+            let outcome =
+                rust_anything::game_harness::replay(&rust_anything::game_harness::ReplayOptions {
+                    root: &root,
+                    trace: &trace,
+                })?;
+            say!(
+                "{}/{} frames match: {}",
+                outcome.matched,
+                outcome.frames,
+                if outcome.all_match() {
+                    "HASH EQUALITY OK"
+                } else {
+                    "MISMATCH"
+                }
+            );
+            for m in &outcome.mismatches {
+                say!(
+                    "  frame {}: recorded {}, got {}",
+                    m.frame,
+                    m.expected,
+                    m.actual
+                );
+            }
+            say!("Trace: {}", trace.display());
+            if !outcome.all_match() {
                 return Ok(ExitCode::FAILURE);
             }
         }

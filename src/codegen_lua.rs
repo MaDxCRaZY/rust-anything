@@ -236,7 +236,12 @@ local g = {
   getBlendMode = function() return 'alpha' end,
   getLineStyle = function() return 'smooth' end,
   getLineWidth = function() return 1 end,
-  getStats = function() return {} end,
+  getStats = function()
+    return { drawcalls = 0, canvases = 0, images = 0, fonts = 0,
+      memory = 0, texturememory = 0, vbuffers = 0, frames = 1 }
+  end,
+  getDPIScale = function() return 1 end,
+  getPixelDensity = function() return 1 end,
   isCreated = function() return true end,
   setCanvas = noop, clear = noop, draw = noop, printf = noop, print = noop,
   setColor = noop, setBackgroundColor = noop, setFont = noop, setBlendMode = noop,
@@ -259,6 +264,8 @@ stub.window = {
   getDimensions = function() return 1280, 720 end,
   getDesktopDimensions = function() return 1920, 1080 end,
   getDisplayName = function() return 'headless' end,
+  getDPIScale = function() return 1 end,
+  getPixelDensity = function() return 1 end,
   getPosition = function() return 0, 0 end,
   setPosition = noop,
   setMode = function() return true end,
@@ -269,6 +276,38 @@ stub.window = {
   maximize = noop, close = noop, setGamma = noop, setGammaCorrect = noop
 }
 
+local function input_module(extra)
+  return setmetatable(extra or {}, {
+    __index = function(_, key)
+      if key == 'isDown' then return no end
+      return noop
+    end
+  })
+end
+
+stub.image = setmetatable({
+  newImageData = function() return object(image_methods) end,
+  newCompressedData = function() return object(image_methods) end
+}, { __index = function() return noop end })
+
+stub.mouse = input_module({
+  getPosition = function() return 0, 0 end,
+  getX = n0, getY = n0, setPosition = noop,
+  isDown = no, getCursor = function() return nil end, setCursor = noop,
+  setVisible = noop, isVisible = function() return false end,
+  hasCursor = no, getSystemCursor = function() return nil end,
+  setGrabbed = noop, isGrabbed = no
+})
+stub.keyboard = input_module({
+  isDown = no, getModifierKeys = empty, setKeyRepeat = noop,
+  hasKeyRepeat = no, getScancode = function(_, key) return key end,
+  getKeyFromScancode = function(_, scancode) return scancode end,
+  getTextInput = function() return '' end, setTextInput = noop, hasTextInput = no
+})
+stub.touch = input_module({ getTouches = empty, getPosition = function() return 0, 0 end })
+stub.joystick = input_module({ getJoysticks = empty, getJoystickCount = n0 })
+stub.gamepad = input_module({ getGamepads = empty, getGamepadCount = n0 })
+
 stub.audio = {
   newSource = function() return object(source_methods) end,
   setVolume = noop, getVolume = function() return 1 end,
@@ -278,15 +317,35 @@ stub.audio = {
   getActiveSourceCount = n0, setMixWithSystem = noop
 }
 
+-- Read real files from the game root so integrity/bootstrap code can run headlessly.
+local game_root = os.getenv('RUST_ANYTHING_LUA_ROOT') or '.'
+local function game_path(path)
+  return game_root .. '/' .. tostring(path):gsub('^%./', '')
+end
+
 stub.filesystem = {
-  read = function() return nil end,
+  read = function(p)
+    local f = io.open(game_path(p), 'rb')
+    if not f then return nil end
+    local data = f:read('*a')
+    f:close()
+    return data
+  end,
   write = function() return true end,
   append = function() return true end,
-  getInfo = function() return nil end,
-  getSaveDirectory = function() return '.' end,
-  getIdentity = function() return 'slotbound' end,
+  getInfo = function(p)
+    local f = io.open(game_path(p), 'rb')
+    if not f then return nil end
+    local size = f:seek('end')
+    f:close()
+    return { size = tonumber(size) or 0, type = 'file', modtime = 0 }
+  end,
+  getSaveDirectory = function() return game_root end,
+  getIdentity = function() return 'slotbound_full' end,
   setIdentity = noop,
-  exists = no, isFile = no, isDirectory = no,
+  exists = function(p) return io.open(game_path(p), 'rb') ~= nil end,
+  isFile = function(p) return io.open(game_path(p), 'rb') ~= nil end,
+  isDirectory = function(p) return false end,
   getDirectoryItems = empty,
   createDirectory = function() return true end,
   remove = function() return true end,
@@ -299,6 +358,15 @@ stub.filesystem = {
   isFused = function() return false end,
   getWrittenStatus = function() return nil end,
   setWritable = noop,
+  newFileData = function(data, name)
+    local text = tostring(data or '')
+    return object({
+      getString = function() return text end,
+      getSize = function() return #text end,
+      getName = function() return tostring(name or '') end,
+      getFilename = function() return tostring(name or '') end
+    })
+  end,
   lines = function() return function() return nil end end
 }
 

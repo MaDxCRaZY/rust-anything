@@ -57,6 +57,10 @@ pub struct Report {
     pub total_ms: f64,
     /// Share of the run spent in the repository's own code (the rest: runtime, libraries).
     pub repo_pct: f64,
+    /// Which profiler produced the samples. Only set for Lua/LÖVE: LuaJIT's built-in
+    /// statistical profiler when available, otherwise the generated instrumentation driver.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
     pub hot: Vec<Hot>,
     /// Functions the repository already compiles to machine code (numba, Cython, JAX).
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -178,16 +182,18 @@ pub fn profile(root: &Path, command: &[String], lang: Option<Lang>) -> Result<Re
     let work = std::env::temp_dir().join(format!("rust-anything-profile-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work)?;
+    let mut method: Option<String> = None;
     let (functions, total_ms) = match lang {
         Lang::Ts => node(&root, command, &work)?,
         Lang::Python => python(&root, command, &work)?,
         Lang::Go => go(&root, command, &work)?,
         Lang::Java => java(&root, command, &work)?,
         Lang::Ruby => ruby(&root, command, &work)?,
-        Lang::Lua => bail!(
-            "`profile` does not run Lua/LÖVE workloads yet; use a Lua profiler and port the \n\
-             hot functions it shows (use `record`/`bridge`/`diff` for correctness)"
-        ),
+        Lang::Lua => {
+            let (functions, total_ms, how) = lua(&root, command, &work)?;
+            method = Some(how);
+            (functions, total_ms)
+        }
         Lang::C => bail!(
             "`profile` runs TS/JS, Python, Go, Java and Ruby workloads; for C, use `perf record -g` \
              and port the hot loops it shows"
@@ -202,7 +208,7 @@ pub fn profile(root: &Path, command: &[String], lang: Option<Lang>) -> Result<Re
         ),
     };
     let _ = std::fs::remove_dir_all(&work);
-    Ok(report(&root, lang, command, functions, total_ms))
+    Ok(report(&root, lang, command, functions, total_ms, method))
 }
 
 /// A frame's file: repository-relative, or absolute for user code elsewhere (a workload
@@ -912,6 +918,389 @@ fn ruby(root: &Path, command: &[String], work: &Path) -> Result<(HashMap<Key, Ac
     Ok((ingest_entries(root, &entries), total_ms))
 }
 
+// ---- Lua/LÖVE: LuaJIT's built-in profiler, with an instrumentation fallback -------------------
+
+/// Resolve a runtime name (`luajit`, a path to `luajit.exe`) to an absolute path. `Command`
+/// searches PATH itself, but we need the directory to look for the `jit` modules next to it.
+fn lua_runtime_path(program: &str) -> Option<PathBuf> {
+    let direct = Path::new(program);
+    if direct.components().count() > 1 && direct.is_file() {
+        return Some(direct.to_path_buf());
+    }
+    let finder = if cfg!(windows) { "where" } else { "which" };
+    let out =
+        crate::process::output(Command::new(finder).arg(program), crate::process::QUICK).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let found = out.stdout_text().lines().next()?.trim().to_string();
+    (!found.is_empty()).then(|| PathBuf::from(found))
+}
+
+/// The directory holding `jit/p.lua`. LuaJIT keeps its Lua-side `jit.*` modules in
+/// `share/luajit` (or `share/lua/5.1`) beside `bin`; some builds put `jit/` next to the exe.
+fn lua_jit_dir(runtime: &Path) -> Option<PathBuf> {
+    let bin = runtime.parent()?;
+    let mut candidates = Vec::new();
+    for base in [bin.to_path_buf(), bin.join(".."), bin.join("../..")] {
+        candidates.push(base.join("share/luajit"));
+        candidates.push(base.join("share/lua/5.1"));
+    }
+    candidates.push(bin.to_path_buf());
+    for c in candidates {
+        if c.join("jit").join("p.lua").is_file() {
+            return Some(c);
+        }
+        // `c` is itself the `jit` directory: LUA_PATH needs its parent so `jit.p` resolves.
+        if c.join("p.lua").is_file() {
+            return c.parent().map(Path::to_path_buf);
+        }
+    }
+    None
+}
+
+/// Build a LUA_PATH that finds the `jit` modules, the workload's `require`s, and any path the
+/// caller already configured.
+fn lua_path(root: &Path, jit_dir: &Path) -> String {
+    // A directory without a trailing separator must get one before Lua's `?` wildcard.
+    let patterns = |dir: &Path| {
+        let d = dir.to_string_lossy().into_owned();
+        let sep = if d.ends_with(['/', '\\']) {
+            String::new()
+        } else {
+            std::path::MAIN_SEPARATOR.to_string()
+        };
+        format!("{d}{sep}?{sep}init.lua;{d}{sep}?.lua")
+    };
+    let mut path = format!("{};", patterns(jit_dir));
+    if let Ok(existing) = std::env::var("LUA_PATH")
+        && !existing.trim().is_empty()
+    {
+        path.push_str(existing.trim());
+        path.push(';');
+    }
+    path.push_str(&patterns(root));
+    path
+}
+
+/// Declaration line of each exported Lua function, used to give sampled function names a line.
+fn lua_declaration_lines(root: &Path) -> HashMap<(String, String), u32> {
+    let mut lines = HashMap::new();
+    let Ok(ws) = crate::lang::lua::discover(root) else {
+        return lines;
+    };
+    for f in ws.files {
+        let text = std::fs::read_to_string(root.join(&f.path)).unwrap_or_default();
+        for e in crate::lang::lua::exports(&f.path, &text) {
+            lines.entry((f.path.clone(), e.name)).or_insert(e.line);
+        }
+    }
+    lines
+}
+
+/// A profiler frame's module can be a full path, or the script name as typed on the command
+/// line (`bench.lua`). Resolve the latter against the repository root so its functions are
+/// recognized as user code.
+fn lua_relative_file(root: &Path, module: &str) -> Option<String> {
+    if let Some(rel) = relative(root, module) {
+        return Some(rel);
+    }
+    let path = Path::new(module);
+    (!path.is_absolute()).then(|| relative(root, &root.join(path).to_string_lossy()))?
+}
+
+/// A module frame is `<path>:<line>` (chunk) or `<path>:<name>` (F format), where `<path>` is a
+/// full path when profiling with `-p`. Plain function names have no path separator and are
+/// attributed to the most recent module frame on the stack.
+fn lua_module_frame(frame: &str) -> Option<(&str, &str)> {
+    let (left, right) = frame.rsplit_once(':')?;
+    (left.contains(['/', '\\']) || left.ends_with(".lua") || left.ends_with(".luajit"))
+        .then_some((left, right))
+}
+
+/// Parse `-jp=Gp` raw output. Each line is a caller-first stack (`;`-separated frames) and a
+/// raw sample count. The last frame is the leaf, so it gets the self time; every frame gets the
+/// inclusive time once per sample (recursion included), matching `merge_samples`.
+fn parse_luajit_profile(
+    root: &Path,
+    raw: &str,
+    decls: &HashMap<(String, String), u32>,
+) -> Vec<(Vec<Option<Key>>, f64)> {
+    let mut samples = Vec::new();
+    for line in raw.lines() {
+        let Some((stack, count)) = line.trim_end().rsplit_once(' ') else {
+            continue;
+        };
+        let Ok(count) = count.parse::<f64>() else {
+            continue;
+        };
+        if count <= 0.0 {
+            continue;
+        }
+        let mut frames: Vec<Option<Key>> = Vec::new();
+        let mut file: Option<String> = None;
+        for frame in stack.split(';') {
+            let frame = frame.trim();
+            if frame.is_empty() {
+                continue;
+            }
+            if frame.starts_with('@') {
+                // C function / VM state: a frame outside user code.
+                frames.push(None);
+                continue;
+            }
+            if let Some((module, tail)) = lua_module_frame(frame) {
+                match lua_relative_file(root, module) {
+                    Some(rel) if tail.chars().all(|c| c.is_ascii_digit()) => {
+                        // Chunk location: remember its file for the functions below it.
+                        file = Some(rel);
+                        frames.push(None);
+                    }
+                    Some(rel) => {
+                        file = Some(rel.clone());
+                        let line_no = decls
+                            .get(&(rel.clone(), tail.to_string()))
+                            .copied()
+                            .unwrap_or(0);
+                        frames.push(Some((rel, tail.to_string(), line_no)));
+                    }
+                    None => frames.push(None),
+                }
+                continue;
+            }
+            let Some(file) = file.clone() else {
+                frames.push(None);
+                continue;
+            };
+            let line_no = decls
+                .get(&(file.clone(), frame.to_string()))
+                .copied()
+                .unwrap_or(0);
+            frames.push(Some((file, frame.to_string(), line_no)));
+        }
+        if frames.iter().any(Option::is_some) {
+            samples.push((frames, count));
+        }
+    }
+    samples
+}
+
+/// LuaJIT sampling profiler. `Ok(None)` means the profiler is not usable here (no `jit`
+/// modules, or no samples); the caller then falls back to instrumentation. A failed workload
+/// is a real error and is reported as such rather than hidden by the fallback.
+fn lua_jit(
+    root: &Path,
+    command: &[String],
+    work: &Path,
+) -> Result<Option<(HashMap<Key, Acc>, f64)>> {
+    const INTERVAL_MS: f64 = 2.0;
+    let Some(runtime) = lua_runtime_path(&command[0]) else {
+        return Ok(None);
+    };
+    let Some(jit_dir) = lua_jit_dir(&runtime) else {
+        return Ok(None);
+    };
+    let profile = work.join("lua_profile.txt");
+    let status = crate::process::status(
+        Command::new(&command[0])
+            .arg(format!("-jp=Gpi{}", INTERVAL_MS as u64))
+            .args(&command[1..])
+            .current_dir(root)
+            .env("LUA_PATH", lua_path(root, &jit_dir))
+            .env("LUAJIT_PROFILEFILE", &profile),
+        crate::process::TESTS,
+    )
+    .with_context(|| format!("running {}", command[0]))?;
+    if !status.success() {
+        bail!("the Lua workload failed ({status})");
+    }
+    let Ok(raw) = std::fs::read_to_string(&profile) else {
+        return Ok(None);
+    };
+    let decls = lua_declaration_lines(root);
+    let samples: Vec<(Vec<Option<Key>>, f64)> = parse_luajit_profile(root, &raw, &decls)
+        .into_iter()
+        .map(|(stack, count)| (stack, count * INTERVAL_MS))
+        .collect();
+    if samples.is_empty() {
+        return Ok(None);
+    }
+    let total: f64 = samples.iter().map(|(_, ms)| *ms).sum();
+    let mut functions = HashMap::new();
+    merge_samples(&samples, &mut functions);
+    Ok(Some((functions, total)))
+}
+
+/// Fallback: a generated driver that times every function the workload calls with
+/// `debug.sethook` call/return events (self time, inclusive time, call counts and callers),
+/// writing cProfile-like JSON at exit. Recorded cases are replayed by the workload itself when
+/// the command drives them; no LÖVE or LuaJIT profiler module is required for this path.
+const LUA_INSTRUMENT: &str = r#"
+local codec = require("rust_anything_profile_codec")
+local stats, stack, active = {}, {}, {}
+local out_path = os.getenv("RUST_ANYTHING_PROFILE_OUT")
+local now = os.clock
+
+local function key_of(info)
+  local src = info.source or "?"
+  if src:sub(1, 1) == "@" then src = src:sub(2) end
+  return { src, info.name or "(anonymous)", info.linedefined or 0 }
+end
+
+local function hook(event)
+  local info = debug.getinfo(2, "nSl")
+  if not info then return end
+  local key = key_of(info)
+  local id = key[1] .. "|" .. key[2] .. "|" .. key[3]
+  local t = now()
+  if event == "call" then
+    active[id] = (active[id] or 0) + 1
+    stack[#stack + 1] = { id = id, key = key, t = t, child = 0 }
+  elseif event == "return" then
+    local frame = stack[#stack]
+    if not frame then return end
+    stack[#stack] = nil
+    active[id] = math.max(0, (active[id] or 1) - 1)
+    local elapsed = t - frame.t
+    local s = stats[id]
+    if not s then
+      s = { file = frame.key[1], name = frame.key[2], line = frame.key[3],
+            calls = 0, self = 0, total = 0, callers = {} }
+      stats[id] = s
+    end
+    s.calls = s.calls + 1
+    s.self = s.self + math.max(0, elapsed - frame.child)
+    local outer = active[id] == 0
+    if outer then s.total = s.total + elapsed end
+    local parent = stack[#stack]
+    if parent then
+      parent.child = parent.child + elapsed
+      local c = s.callers[parent.id]
+      if not c then
+        c = { file = parent.key[1], name = parent.key[2], line = parent.key[3],
+              calls = 0, total = 0 }
+        s.callers[parent.id] = c
+      end
+      c.calls = c.calls + 1
+      if outer then c.total = c.total + elapsed end
+    end
+  end
+end
+
+local function run_workload()
+  local a, n = {}, 0
+  for i = 1, #arg do n = n + 1; a[n] = arg[i] end
+  if a[1] == "-e" then
+    assert(loadstring(a[2] or ""))()
+    return
+  end
+  local script = a[1]
+  if not script or script == "" then return end
+  local chunk, err = loadfile(script)
+  if not chunk then error(err) end
+  local saved = arg
+  arg = { [0] = script }
+  for i = 2, n do arg[i - 1] = a[i] end
+  chunk(unpack(arg, 1))
+  arg = saved
+end
+
+debug.sethook(hook, "cr")
+local ok, err = pcall(run_workload)
+debug.sethook()
+if not ok then io.stderr:write("rust-anything profile: workload error: " .. tostring(err) .. "\n") end
+
+local out = {}
+for _, s in pairs(stats) do
+  local callers = {}
+  for _, c in pairs(s.callers) do
+    callers[#callers + 1] = { file = c.file, line = c.line, name = c.name,
+                              calls = c.calls, total = c.total * 1000 }
+  end
+  out[#out + 1] = { file = s.file, line = s.line, name = s.name, calls = s.calls,
+                    self = s.self * 1000, total = s.total * 1000, callers = callers }
+end
+local f = assert(io.open(out_path, "w"))
+f:write(codec.encode(out))
+f:close()
+"#;
+
+/// Make a driver-reported path usable by `ingest_entries`, which expects absolute paths.
+fn lua_absolutize(entries: &mut [Value], root: &Path) {
+    let fix = |file: &mut Value| {
+        if let Some(s) = file.as_str().map(str::to_string)
+            && !s.starts_with('/')
+            && !s.contains(":\\")
+        {
+            *file = Value::String(root.join(s).to_string_lossy().into_owned());
+        }
+    };
+    for e in entries.iter_mut() {
+        fix(&mut e["file"]);
+        if let Some(callers) = e["callers"].as_array_mut() {
+            for c in callers.iter_mut() {
+                fix(&mut c["file"]);
+            }
+        }
+    }
+}
+
+fn lua_instrument(
+    root: &Path,
+    command: &[String],
+    work: &Path,
+) -> Result<(HashMap<Key, Acc>, f64)> {
+    std::fs::write(
+        work.join("rust_anything_profile_codec.lua"),
+        crate::codegen_lua::CODEC_LUA,
+    )?;
+    let driver = work.join("rust_anything_profile_driver.lua");
+    std::fs::write(&driver, LUA_INSTRUMENT)?;
+    let out = work.join("lua_instrument.json");
+    let start = std::time::Instant::now();
+    let status = crate::process::status(
+        Command::new(&command[0])
+            .arg(&driver)
+            .args(&command[1..])
+            .current_dir(root)
+            .env("LUA_PATH", lua_path(root, work))
+            .env("RUST_ANYTHING_PROFILE_OUT", &out),
+        crate::process::TESTS,
+    )
+    .with_context(|| format!("running {}", command[0]))?;
+    let total_ms = start.elapsed().as_secs_f64() * 1000.0;
+    if !status.success() {
+        bail!("the Lua workload failed ({status})");
+    }
+    let text = std::fs::read_to_string(&out)
+        .context("the Lua instrumentation driver wrote nothing: is the workload a Lua process?")?;
+    let mut entries: Vec<Value> = serde_json::from_str(&text).context("instrumentation output")?;
+    lua_absolutize(&mut entries, root);
+    Ok((ingest_entries(root, &entries), total_ms))
+}
+
+/// Lua/LÖVE profile: prefer LuaJIT's built-in low-overhead statistical profiler; when it is
+/// unavailable, fall back to the generated instrumentation driver. The returned string states
+/// which one actually ran, so the report never claims a profiler it did not use.
+fn lua(root: &Path, command: &[String], work: &Path) -> Result<(HashMap<Key, Acc>, f64, String)> {
+    if let Some((functions, total_ms)) = lua_jit(root, command, work)? {
+        Ok((
+            functions,
+            total_ms,
+            "LuaJIT built-in statistical profiler (`-jp`, 2 ms sampling interval)".into(),
+        ))
+    } else {
+        let (functions, total_ms) = lua_instrument(root, command, work)?;
+        Ok((
+            functions,
+            total_ms,
+            "generated instrumentation driver (`debug.sethook` call/return timing); \
+             LuaJIT's profiler was unavailable"
+                .into(),
+        ))
+    }
+}
+
 // ---- the report -----------------------------------------------------------------------------
 
 /// The argument a caller passes per loop item: an arrow or for-of variable among `f`'s call
@@ -1052,6 +1441,7 @@ fn report(
     command: &[String],
     functions: HashMap<Key, Acc>,
     total_ms: f64,
+    method: Option<String>,
 ) -> Report {
     let analysis = crate::analyze::analyze_lang(root, lang).ok();
     let unit_of = |file: &str| -> Option<(String, bool)> {
@@ -1138,7 +1528,13 @@ fn report(
             }
         })
         .collect();
-    hot.sort_by(|a, b| b.total_ms.total_cmp(&a.total_ms));
+    // Lua's LuaJIT flat profile (and the instrumentation fallback) rank by self time: the
+    // function doing the work, not merely the one with the largest inclusive total.
+    if lang == Lang::Lua {
+        hot.sort_by(|a, b| b.self_ms.total_cmp(&a.self_ms));
+    } else {
+        hot.sort_by(|a, b| b.total_ms.total_cmp(&a.total_ms));
+    }
     hot.truncate(25);
     let compiled = compiled_in(root, lang);
     for h in &mut hot {
@@ -1151,6 +1547,7 @@ fn report(
         language: lang,
         command: command.to_vec(),
         total_ms,
+        method,
         repo_pct: if total_ms > 0.0 {
             (100.0 * repo_self / total_ms).min(100.0)
         } else {
@@ -1164,11 +1561,17 @@ fn report(
 pub fn markdown(r: &Report) -> String {
     use std::fmt::Write as _;
     let mut out = format!(
-        "# Profile: `{}`\n\n{:.0} ms in all; {:.0}% of it in the repository's own code.\n\n\
-         | Function | File | Total | Self | Calls | Unit |\n| --- | --- | ---: | ---: | ---: | --- |\n",
+        "# Profile: `{}`\n\n{:.0} ms in all; {:.0}% of it in the repository's own code.\n\n",
         r.command.join(" "),
         r.total_ms,
         r.repo_pct
+    );
+    if let Some(m) = &r.method {
+        let _ = writeln!(out, "Profiler: {m}.\n");
+    }
+    let _ = write!(
+        out,
+        "| Function | File | Total | Self | Calls | Unit |\n| --- | --- | ---: | ---: | ---: | --- |\n"
     );
     for h in &r.hot {
         let _ = writeln!(
@@ -1438,6 +1841,66 @@ mod tests {
                    String s = slugify(text, 0);\n        return s;\n    }\n}\n";
         assert_eq!(java_declaration(src, "slugify", 4), Some(2));
         assert_eq!(java_declaration(src, "slugify", 1), None);
+    }
+
+    #[test]
+    fn luajit_profile_parses_stacks_and_self_time() {
+        let root = Path::new(r"C:\repo");
+        let raw = "\
+@0x7ff7ee008bc0;C:\\repo\\bench.lua:0;warm;hot 6
+@0x7ff7ee008bc0;C:\\repo\\bench.lua:0;warm 2
+@0x7ff7ee008bc0;C:\\repo\\bench.lua:0;cold 1
+";
+        let mut decls = HashMap::new();
+        decls.insert(("bench.lua".into(), "hot".into()), 3u32);
+        decls.insert(("bench.lua".into(), "warm".into()), 7u32);
+        let samples = parse_luajit_profile(root, raw, &decls)
+            .into_iter()
+            .map(|(s, c)| (s, c * 2.0))
+            .collect::<Vec<_>>();
+        let mut functions = HashMap::new();
+        merge_samples(&samples, &mut functions);
+        let key = |n: &str, l: u32| ("bench.lua".to_string(), n.to_string(), l);
+        // `hot` was the leaf for 6 samples, so it owns all of the self time.
+        assert_eq!(functions[&key("hot", 3)].self_ms, 12.0);
+        assert_eq!(functions[&key("hot", 3)].total_ms, 12.0);
+        assert_eq!(
+            functions[&key("hot", 3)].callers.keys().collect::<Vec<_>>(),
+            [&key("warm", 7)]
+        );
+        // `warm` was on the stack for 8 samples, once as the leaf.
+        assert_eq!(functions[&key("warm", 7)].total_ms, 16.0);
+        assert_eq!(functions[&key("warm", 7)].self_ms, 4.0);
+        assert_eq!(functions[&key("cold", 0)].self_ms, 2.0);
+    }
+
+    #[test]
+    fn lua_finds_luajit_profiler_modules() {
+        if let Some(rt) = lua_runtime_path("luajit") {
+            assert!(lua_jit_dir(&rt).is_some());
+        }
+    }
+
+    #[test]
+    fn lua_frames_and_paths() {
+        assert_eq!(
+            lua_module_frame(r"C:\repo\x.lua:12"),
+            Some((r"C:\repo\x.lua", "12"))
+        );
+        assert_eq!(
+            lua_module_frame("bench.lua:hot"),
+            Some(("bench.lua", "hot"))
+        );
+        assert_eq!(lua_module_frame("hot"), None);
+        assert_eq!(lua_module_frame("a:b:c"), None);
+        assert_eq!(
+            relative(Path::new(r"C:\repo"), r"C:\repo\src\a.lua").as_deref(),
+            Some("src/a.lua")
+        );
+        assert_eq!(
+            lua_relative_file(Path::new(r"C:\repo"), "bench.lua").as_deref(),
+            Some("bench.lua")
+        );
     }
 
     #[test]

@@ -27,6 +27,9 @@ pub fn shadow(crate_dir: &Path, out: Option<&Path>) -> Result<ShadowOutcome> {
     if manifest.language == crate::lang::Lang::Python {
         return shadow_python(&crate_dir, &manifest, out);
     }
+    if manifest.language == crate::lang::Lang::Lua {
+        return shadow_lua(&crate_dir, &manifest, out);
+    }
     if manifest.kind == crate::bridge::Kind::CAbi {
         return shadow_c(&crate_dir, &manifest, out);
     }
@@ -289,6 +292,13 @@ fn with_kill_switch(text: &str, crate_name: &str) -> String {
         1,
     )
     .replacen(
+        "local MODE = os.getenv('RUST_ANYTHING_MODE') or 'shadow'",
+        &format!(
+            "local MODE = (os.getenv('{switch}') == 'original') and 'old' or (os.getenv('RUST_ANYTHING_MODE') or 'shadow')"
+        ),
+        1,
+    )
+    .replacen(
         "_MODE = os.environ.get(\"RUST_ANYTHING_MODE\", \"shadow\")",
         &format!(
             "_MODE = \"old\" if os.environ.get(\"{switch}\") == \"original\" else os.environ.get(\"RUST_ANYTHING_MODE\", \"shadow\")"
@@ -522,6 +532,481 @@ def load(path):
 "#
 };
 
+/// Quote a string for a Lua source literal. Paths are forward-slashed by the caller; escape
+/// the characters Lua would otherwise interpret inside a double-quoted string.
+fn lua_str(s: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\{:03}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// The Lua/LÖVE shadow module: a drop-in `M` whose functions run the original and the Rust port
+/// side by side. The original is located with the same upvalue/table resolution the record/diff
+/// driver uses (see `codegen_lua.rs::DRIVER_LUA`), the port is the generated FFI wrapper
+/// (`codegen_lua::wrapper`). `RUST_ANYTHING_MODE=old|shadow|new` selects which result callers get;
+/// `shadowStats.mismatches` and `onMismatch` expose the comparison.
+fn shadow_lua(crate_dir: &Path, manifest: &Manifest, out: Option<&Path>) -> Result<ShadowOutcome> {
+    let lib = manifest.lib_name();
+    let path = match out {
+        Some(p) => p.to_path_buf(),
+        None => crate_dir.join("lua").join(format!("{lib}_shadow.lua")),
+    };
+    if path.exists() {
+        bail!("{} exists; remove it first or pass --out", path.display());
+    }
+    std::fs::create_dir_all(path.parent().context("output path has no folder")?)?;
+    let source = lua_shadow_source(crate_dir, manifest);
+    std::fs::write(&path, with_kill_switch(&source, &manifest.crate_name))
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(ShadowOutcome {
+        path,
+        exports: manifest.exports.iter().map(|f| f.name.clone()).collect(),
+    })
+}
+
+/// Build the generated Lua shadow source for one crate.
+fn lua_shadow_source(crate_dir: &Path, m: &Manifest) -> String {
+    use crate::lang::lua::receiver;
+
+    let lib = lua_str(&m.lib_name());
+    let root = lua_str(&m.root.to_string_lossy().replace('\\', "/"));
+    let cases = lua_str(
+        &crate_dir
+            .join(crate::harness::CASES)
+            .to_string_lossy()
+            .replace('\\', "/"),
+    );
+
+    let mut files: Vec<&str> = m
+        .exports
+        .iter()
+        .map(|f| f.file.as_str())
+        .chain(m.js_only.iter().map(|j| j.file.as_str()))
+        .collect();
+    files.sort_unstable();
+    files.dedup();
+    let files_lua = files
+        .iter()
+        .map(|f| lua_str(&m.root.join(f).to_string_lossy().replace('\\', "/")))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut targets = String::new();
+    let mut natives = String::new();
+    for f in &m.exports {
+        let (recv, name) = receiver(f);
+        targets.push_str(&format!(
+            "  [{}] = {{ {}, {}, {} }},\n",
+            lua_str(&f.name),
+            lua_str(&recv),
+            lua_str(&name),
+            lua_str(&f.file)
+        ));
+        // The FFI wrapper nests exports as M.<receiver>.<name> (or M.<name> for globals).
+        let mut parts: Vec<String> = if recv == "_G" {
+            Vec::new()
+        } else {
+            recv.split('.')
+                .filter(|p| !p.is_empty())
+                .map(str::to_string)
+                .collect()
+        };
+        parts.push(name);
+        natives.push_str(&format!(
+            "  [{}] = {{ {} }},\n",
+            lua_str(&f.name),
+            parts
+                .iter()
+                .map(|p| lua_str(p))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+
+    let mut out = String::new();
+    out.push_str(&format!(
+        r#"-- Generated by rust-anything: runs the original Lua function and the Rust port side by side.
+-- RUST_ANYTHING_MODE=old: original only. shadow (default): original result, Rust compared.
+-- new: Rust only. Report mismatches with `onMismatch`; counts are in `shadowStats`.
+local codec = require('rust_anything_codec')
+pcall(require, 'rust_anything_headless_stub')
+if type(_G.love) ~= 'table' then _G.love = {{}} end
+local unpack_ = table.unpack or unpack
+
+local MODE = os.getenv('RUST_ANYTHING_MODE') or 'shadow'
+local source_root = {root}
+local cases_path = {cases}
+local alias_cache = {{}}
+
+local native = nil
+if MODE ~= 'old' then
+  local ok, mod = pcall(require, {lib})
+  if ok then
+    native = mod
+  elseif MODE == 'new' then
+    error(mod, 0)
+  else
+    print('[rust-anything] Rust module not loaded, running the original only: ' .. tostring(mod))
+  end
+end
+
+local modules = {{}}
+local function load_files(...)
+  for _, path in ipairs({{...}}) do
+    local chunk = loadfile(path)
+    if chunk then
+      local ok, mod = pcall(chunk)
+      if ok and type(mod) == 'table' then modules[path] = mod end
+    end
+  end
+end
+load_files({files_lua})
+
+local targets = {{
+{targets}}}
+local native_paths = {{
+{natives}}}
+"#,
+        root = root,
+        cases = cases,
+        lib = lib,
+        files_lua = files_lua,
+        targets = targets,
+        natives = natives,
+    ));
+    out.push_str(LUA_SHADOW_HELPERS);
+    out.push_str(LUA_SHADOW_RUNTIME);
+
+    out.push_str("local M = {}\n");
+    for f in &m.exports {
+        let (recv, _) = receiver(f);
+        let parts: Vec<&str> = recv.split('.').filter(|p| !p.is_empty()).collect();
+        let mut prefix = String::new();
+        for part in &parts {
+            prefix = if prefix.is_empty() {
+                (*part).to_string()
+            } else {
+                format!("{prefix}.{part}")
+            };
+            out.push_str(&format!("M.{prefix} = M.{prefix} or {{}}\n"));
+        }
+        let full = if parts.is_empty() {
+            receiver(f).1
+        } else {
+            format!("{}.{}", parts.join("."), receiver(f).1)
+        };
+        out.push_str(&format!(
+            "function M.{full}(...) return call({}, {{...}}) end\n",
+            lua_str(&f.name)
+        ));
+    }
+    out.push_str(
+        r#"
+M.shadowStats = shadowStats
+M.onMismatch = onMismatch
+M.runCases = runCases
+
+-- Running the file directly (rather than `require`-ing it) replays the recorded cases and
+-- prints the mismatch count; `require` returns the drop-in module without running anything.
+local first = ...
+if type(first) ~= 'string' then
+  local f = io.open(cases_path)
+  if f then
+    f:close()
+    local stats = runCases(cases_path)
+    print(string.format('[rust-anything] shadow: %d calls, %d mismatches (mode=%s)', stats.calls, stats.mismatches, MODE))
+  end
+end
+
+return M
+"#,
+    );
+    out
+}
+
+/// Resolution and canonical-comparison helpers, adapted from `codegen_lua.rs::DRIVER_LUA` so the
+/// shadow reaches exactly the closures `record`/`diff` reach (nested tables and function
+/// upvalues), and compares results the same way.
+const LUA_SHADOW_HELPERS: &str = r#"
+local function split_path(s)
+  local out = {}
+  for part in tostring(s or ''):gmatch('[^%.]+') do out[#out + 1] = part end
+  return out
+end
+
+local function path_get(root, path)
+  local cur = root
+  for i = 1, #path do
+    if type(cur) ~= 'table' then return nil end
+    cur = cur[path[i]]
+  end
+  return cur
+end
+
+local function deepcopy(v)
+  if type(v) ~= 'table' then return v end
+  local out = {}
+  for k, value in pairs(v) do out[deepcopy(k)] = deepcopy(value) end
+  return out
+end
+
+local function find_named(tbl, path, depth, seen)
+  if type(tbl) ~= 'table' or depth > 12 or seen[tbl] then return nil end
+  seen[tbl] = true
+  local direct = path_get(tbl, path)
+  if type(direct) == 'function' then return direct end
+  for _, value in pairs(tbl) do
+    if type(value) == 'table' then
+      local found = find_named(value, path, depth + 1, seen)
+      if found then return found end
+    end
+  end
+  return nil
+end
+
+local function find_upvalue(root, path, depth, seen)
+  if depth > 12 or seen[root] then return nil end
+  seen[root] = true
+  if type(root) == 'function' then
+    local i = 1
+    while true do
+      local upname, value = debug.getupvalue(root, i)
+      if upname == nil then break end
+      local direct = path_get(value, path)
+      if type(direct) == 'function' then return direct end
+      local found = find_upvalue(value, path, depth + 1, seen)
+      if found then return found end
+      i = i + 1
+    end
+  elseif type(root) == 'table' then
+    for _, value in pairs(root) do
+      local found = find_upvalue(value, path, depth + 1, seen)
+      if found then return found end
+    end
+  end
+  return nil
+end
+
+local function source_aliases(file)
+  if not file or not source_root then return nil end
+  if alias_cache[file] ~= nil then return alias_cache[file] end
+  local map = {}
+  local f = io.open(source_root .. '/' .. file)
+  if f then
+    local text = f:read('*a')
+    f:close()
+    for alias, target in text:gmatch('local%s+([%w_]+)%s*=%s*([%w_]+)[^\n]*') do
+      if alias ~= target then map[alias] = target end
+    end
+    local ret
+    for block in text:gmatch('return%s*{([^}]*)}') do ret = block end
+    if ret then
+      for key, alias in ret:gmatch('([%w_]+)%s*=%s*([%w_]+)') do
+        local cur = alias
+        for _ = 1, 8 do
+          local parent = map[cur]
+          if not parent or parent == cur then break end
+          cur = parent
+        end
+        if map[cur] == nil then map[cur] = key end
+      end
+    end
+  end
+  alias_cache[file] = map
+  return map
+end
+
+local function aliased_recv(file, recv)
+  local map = source_aliases(file)
+  if not map then return nil end
+  local cur = recv
+  for _ = 1, 8 do
+    local parent = map[cur]
+    if not parent or parent == cur then break end
+    cur = parent
+  end
+  return cur ~= recv and cur or nil
+end
+
+local function resolve(t)
+  local recv, name, file = t[1], t[2], t[3]
+  local recv_path, name_path = split_path(recv), split_path(name)
+
+  local holders = {}
+  local function add(h)
+    if type(h) == 'table' then holders[#holders + 1] = h end
+  end
+  if file then
+    add(modules[file])
+    if #holders == 0 then
+      for path, mod in pairs(modules) do
+        if path:sub(-#file) == file then add(mod) break end
+      end
+    end
+  end
+  for _, mod in pairs(modules) do add(mod) end
+  if recv == '_G' then
+    add(_G)
+  elseif recv == 'love' then
+    add(_G.love)
+  end
+
+  for _, mod in pairs(modules) do
+    local fn = find_upvalue(mod, name_path, 0, {})
+    if fn then return fn end
+  end
+
+  if recv == '_G' then
+    local global = path_get(_G, name_path)
+    if type(global) == 'function' then return global end
+    for _, holder in ipairs(holders) do
+      local fn = path_get(holder, name_path)
+      if type(fn) == 'function' then return fn end
+    end
+    return nil
+  end
+
+  local alias = aliased_recv(file, recv)
+  local recv_paths = { recv_path }
+  if alias then recv_paths[#recv_paths + 1] = split_path(alias) end
+  for _, holder in ipairs(holders) do
+    for _, rp in ipairs(recv_paths) do
+      local sub = path_get(holder, rp)
+      if type(sub) == 'table' then
+        local fn = path_get(sub, name_path)
+        if type(fn) == 'function' then return fn end
+      end
+    end
+    local fn = path_get(holder, name_path)
+    if type(fn) == 'function' then return fn end
+  end
+
+  for _, holder in ipairs(holders) do
+    local fn = find_named(holder, name_path, 0, {})
+    if fn then return fn end
+  end
+  return nil
+end
+
+local function canonical(v, level)
+  if type(v) ~= 'table' then return codec.encode(v) end
+  local keys = {}
+  for k in pairs(v) do keys[#keys + 1] = k end
+  table.sort(keys, function(a, b)
+    if type(a) == 'number' and type(b) == 'number' then return a < b end
+    return tostring(a) < tostring(b)
+  end)
+  local parts = {}
+  for _, k in ipairs(keys) do
+    parts[#parts + 1] = codec.encode(tostring(k)) .. ':' .. canonical(v[k], (level or 0) + 1)
+  end
+  return '{' .. table.concat(parts, ',') .. '}'
+end
+
+local function normerr(s)
+  return (tostring(s or ''):gsub('\\', '/'))
+end
+
+local function same(expected, got)
+  if tostring(got.error or ''):find('Rust panic:', 1, true) then return false end
+  if expected.error ~= nil then
+    return got.error ~= nil and normerr(expected.error) == normerr(got.error)
+  end
+  return got.error == nil and canonical(expected.ok, 0) == canonical(got.ok, 0)
+end
+"#;
+
+/// The shadow dispatcher and stats API, assembled after the helpers and before the exports.
+const LUA_SHADOW_RUNTIME: &str = r#"
+local shadowStats = { calls = 0, mismatches = 0 }
+local report = function(m)
+  if shadowStats.mismatches <= 10 then
+    print('[rust-anything] mismatch in ' .. tostring(m.fn) ..
+      ' expected ' .. tostring(codec.encode(m.expected)) ..
+      ' got ' .. tostring(codec.encode(m.actual)))
+  end
+end
+local function onMismatch(handler) report = handler end
+
+local function path_get_native(path)
+  local cur = native
+  for i = 1, #path do
+    if type(cur) ~= 'table' then return nil end
+    cur = cur[path[i]]
+  end
+  return cur
+end
+
+local function invoke_legacy(name, args)
+  local fn = resolve(targets[name] or {})
+  if type(fn) ~= 'function' then error('no such original: ' .. tostring(name), 0) end
+  return fn(unpack_(args, 1, #args))
+end
+
+local function invoke_native(name, args)
+  local path = native_paths[name]
+  local fn = path and path_get_native(path)
+  if type(fn) ~= 'function' then error('no such native: ' .. tostring(name), 0) end
+  return fn(unpack_(args, 1, #args))
+end
+
+local function compare(name, args, expected, actual)
+  shadowStats.calls = shadowStats.calls + 1
+  if not same(expected, actual) then
+    shadowStats.mismatches = shadowStats.mismatches + 1
+    report({ fn = name, args = args, expected = expected, actual = actual })
+  end
+end
+
+local function call(name, args)
+  if MODE == 'new' then return invoke_native(name, args) end
+  if MODE == 'old' or not native then return invoke_legacy(name, args) end
+  -- The original gets the caller's real table (so in-place mutations still reach the caller);
+  -- the port gets a pristine snapshot. Passing the same table to both would let a stateful
+  -- original (e.g. SbPityForce) mutate the port's inputs and manufacture a mismatch.
+  local native_args = deepcopy(args)
+  local lok, expected = pcall(invoke_legacy, name, args)
+  local nok, actual = pcall(invoke_native, name, native_args)
+  local exp = lok and { ok = expected } or { error = tostring(expected) }
+  local act = nok and { ok = actual } or { error = tostring(actual) }
+  compare(name, args, exp, act)
+  if not lok then error(expected, 0) end
+  return expected
+end
+
+local function runCases(path)
+  path = path or cases_path
+  local f = io.open(path)
+  if not f then error('no cases at ' .. tostring(path), 0) end
+  local text = f:read('*a')
+  f:close()
+  for line in text:gmatch('[^\n]+') do
+    if line ~= '' then
+      local c = codec.decode(line)
+      local args = {}
+      for i, v in ipairs(c.args or {}) do args[i] = codec.normalize(v) end
+      pcall(call, c.fn, args)
+    end
+  end
+  return shadowStats
+end
+"#;
+
 /// C: a shadow translation unit, and the `-D` flags that rename the originals beside it.
 fn shadow_c(crate_dir: &Path, manifest: &Manifest, out: Option<&Path>) -> Result<ShadowOutcome> {
     let stem = manifest
@@ -550,8 +1035,62 @@ fn shadow_c(crate_dir: &Path, manifest: &Manifest, out: Option<&Path>) -> Result
 
 #[cfg(test)]
 mod tests {
-    use super::relative;
+    use super::{lua_shadow_source, lua_str, relative, with_kill_switch};
+    use crate::bridge::Manifest;
     use std::path::Path;
+
+    fn lua_manifest() -> Manifest {
+        serde_json::from_str(
+            r#"{"schema":"rust-anything/bridge@1","root":".","unit":"x.lua","language":"lua",
+                 "kind":"ffi","crate_name":"x-rs","exports":[
+                   {"name":"love.conf","file":"conf.lua","line":1,"params":[],"returns":"unknown","is_async":false},
+                   {"name":"api.run","file":"src/x.lua","line":2,"params":[],"returns":"unknown","is_async":false}]}"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn lua_shadow_wraps_original_and_native_with_stats() {
+        let src = lua_shadow_source(Path::new("crate"), &lua_manifest());
+        for piece in [
+            "local codec = require('rust_anything_codec')",
+            "pcall(require, 'rust_anything_headless_stub')",
+            "local MODE = os.getenv('RUST_ANYTHING_MODE') or 'shadow'",
+            "RUST_ANYTHING_MODE=old: original only",
+            "find_upvalue",
+            "local function resolve(t)",
+            "local function canonical(v, level)",
+            "local function deepcopy(v)",
+            "local native_args = deepcopy(args)",
+            "local function invoke_legacy(name, args)",
+            "local function invoke_native(name, args)",
+            "shadowStats.mismatches = shadowStats.mismatches + 1",
+            "M.shadowStats = shadowStats",
+            "M.onMismatch = onMismatch",
+            "M.runCases = runCases",
+            "function M.love.conf(...) return call(\"love.conf\", {...}) end",
+            "function M.api.run(...) return call(\"api.run\", {...}) end",
+            "[\"love.conf\"] = { \"love\", \"conf\", \"conf.lua\" }",
+            "[\"api.run\"] = { \"api\", \"run\" }",
+            "return M",
+        ] {
+            assert!(src.contains(piece), "shadow is missing {piece}");
+        }
+    }
+
+    #[test]
+    fn lua_shadow_honors_the_unit_kill_switch() {
+        let src = lua_shadow_source(Path::new("crate"), &lua_manifest());
+        let out = with_kill_switch(&src, "x-rs");
+        assert!(out.contains("os.getenv('RUST_ANYTHING_UNIT_X') == 'original'"));
+        assert!(!out.contains("local MODE = os.getenv('RUST_ANYTHING_MODE') or 'shadow'"));
+    }
+
+    #[test]
+    fn lua_str_escapes_sources() {
+        assert_eq!(lua_str("a\\b\"c"), "\"a\\\\b\\\"c\"");
+        assert_eq!(lua_str("a\nb"), "\"a\\nb\"");
+    }
 
     #[test]
     fn builds_relative_specifiers() {

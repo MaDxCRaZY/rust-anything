@@ -57,6 +57,13 @@ fn fix_for(check: &Check, crate_dir: &Path) -> Option<String> {
         "error cases" | "panics" => {
             format!("rust-anything diff {c} to see the cases where the port's errors differ")
         }
+        // A shadow gate (Lua/LÖVE included) fails when original and port diverge live. The
+        // generated module counts them in `shadowStats.mismatches`; replay the recorded cases
+        // with RUST_ANYTHING_MODE=shadow to reproduce before diffing.
+        "shadow" => format!(
+            "rust-anything shadow {c}, then replay its cases with RUST_ANYTHING_MODE=shadow; \
+             inspect the mismatch reporter (`onMismatch`) and fix the port"
+        ),
         _ => return None,
     })
 }
@@ -546,6 +553,12 @@ mod tests {
             Some("rust-anything record port")
         );
         assert!(fix_for(&check("fmt", ""), dir).is_some_and(|f| f.starts_with("cargo fmt")));
+        assert_eq!(
+            fix_for(&check("shadow", "mismatches"), dir).as_deref(),
+            Some(
+                "rust-anything shadow port, then replay its cases with RUST_ANYTHING_MODE=shadow; inspect the mismatch reporter (`onMismatch`) and fix the port"
+            )
+        );
         assert_eq!(fix_for(&check("coverage", ""), dir), None);
     }
 

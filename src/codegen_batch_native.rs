@@ -1159,9 +1159,431 @@ pub fn java_files(m: &Manifest, api: &PortApi) -> Result<Vec<(String, String)>, 
     Ok(files)
 }
 
+// ---- Lua / LÖVE -------------------------------------------------------------------------------
+
+/// The C parameter expression that decodes fixed argument `i` from the JSON args array. The
+/// helpers are the ones `codegen_ffi::lib_rs` puts in every FFI `lib.rs`.
+fn lua_arg_expr(t: &str, i: usize) -> String {
+    match t.trim() {
+        "f64" => format!("num(&args, {i})?"),
+        "Option<f64>" => format!("opt_num(&args, {i})?"),
+        "Vec<f64>" => format!("num_vec(&args, {i})?"),
+        _ => format!("arg::<{}>(&args, {i})?", t.trim()),
+    }
+}
+
+/// How one port result becomes a `serde_json::Value` in the batch's JSON answer.
+fn lua_out_expr(ret: &str, r: &str) -> String {
+    match ret.trim() {
+        "f64" => format!("out_num({r})"),
+        "Value" | "serde_json::Value" => r.to_string(),
+        _ => format!("json!({r})"),
+    }
+}
+
+/// Helpers shared by every Lua batch, emitted once at the end of `lib.rs`.
+const LUA_BATCH_RS: &str = r#"
+/// Reads a NUL-terminated argument passed through LuaJIT FFI.
+fn lua_batch_str(ptr: *const c_char) -> String {
+    if ptr.is_null() {
+        return String::new();
+    }
+    // SAFETY: Lua passes a NUL-terminated string that lives for this call.
+    unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned()
+}
+
+/// A panic payload as a message in the batch's JSON answer.
+fn lua_batch_panic(p: Box<dyn std::any::Any + Send>) -> String {
+    p.downcast_ref::<&str>()
+        .map(ToString::to_string)
+        .or_else(|| p.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "panic".into())
+}
+
+/// Runs a batch call and encodes its answer as JSON: `{"ok": ...}`, `{"error": ...}` or
+/// `{"panic": ...}`. Panics never unwind into Lua.
+fn lua_batch_answer<T>(
+    f: impl FnOnce() -> Result<T, String>,
+    to_value: impl FnOnce(T) -> Value,
+) -> *mut c_char {
+    let text = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f().map(to_value))) {
+        Ok(Ok(v)) => json!({ "ok": v }).to_string(),
+        Ok(Err(m)) => json!({ "error": m }).to_string(),
+        Err(p) => json!({ "panic": lua_batch_panic(p) }).to_string(),
+    };
+    CString::new(text).map_or(std::ptr::null_mut(), CString::into_raw)
+}
+
+/// Frees an answer from any Lua batch call. The batch module has its own answer pointer (it must
+/// not redeclare `rust_anything_free`, which the main FFI wrapper already declares).
+///
+/// # Safety
+///
+/// `ptr` comes from a batch call and is not freed before.
+// SAFETY: exported unmangled under a name only rust-anything defines.
+#[unsafe(no_mangle)]
+// SAFETY: callers uphold the contract under `# Safety`.
+pub unsafe extern "C" fn rust_anything_lb_free(ptr: *mut c_char) {
+    if !ptr.is_null() {
+        // SAFETY: `ptr` was made by `lua_batch_answer` and is freed once.
+        drop(unsafe { CString::from_raw(ptr) });
+    }
+}
+"#;
+
+/// The C ABI batch functions for a Lua/LÖVE `lib.rs`. Items cross once as JSON, stay in a Rust
+/// index, and `run`/`rank` call the `port::` functions over them on all cores with rayon. Answers
+/// use the same JSON envelope as `rust_anything_call`, so the Lua wrapper decodes them alike.
+pub fn lua_rs(m: &Manifest, api: &PortApi) -> Result<String, String> {
+    if m.batches.is_empty() {
+        return Ok(String::new());
+    }
+    let mut out = LUA_BATCH_RS.to_string();
+    for b in &m.batches {
+        let s = spec_with(b, api, true)?;
+        if !s.custom {
+            out.push_str(&default_index(&s, true));
+        }
+        let name = s.f.rust_name.trim_start_matches("r#");
+        let index = &s.index;
+        let item = &s.item_ty;
+        let out_value = lua_out_expr(s.f.ret.trim(), "r");
+
+        let fixed = fixed(&s);
+        let mut decode = String::new();
+        let mut names: Vec<&str> = Vec::new();
+        for (i, (n, t)) in fixed.iter().enumerate() {
+            let _ = writeln!(decode, "            let {n} = {};", lua_arg_expr(t, i));
+            names.push(n.as_str());
+        }
+        let args = names.join(", ");
+
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "/// Builds a `{}` from Lua items: they cross once, then stay in Rust.",
+            s.class
+        );
+        let _ = writeln!(out, "///");
+        let _ = writeln!(out, "/// # Safety");
+        let _ = writeln!(out, "///");
+        let _ = writeln!(
+            out,
+            "/// `items` is a NUL-terminated JSON array, valid for this call."
+        );
+        let _ = writeln!(
+            out,
+            "// SAFETY: exported unmangled under a name only rust-anything defines."
+        );
+        let _ = writeln!(out, "#[unsafe(no_mangle)]");
+        let _ = writeln!(
+            out,
+            "// SAFETY: callers uphold the contract under `# Safety`."
+        );
+        let _ = writeln!(
+            out,
+            "pub unsafe extern \"C\" fn rust_anything_lb_{name}_new(items: *const c_char) -> *mut {index} {{"
+        );
+        let _ = writeln!(out, "    let json = lua_batch_str(items);");
+        let _ = writeln!(
+            out,
+            "    let items: Vec<{item}> = match serde_json::from_str(&json) {{"
+        );
+        let _ = writeln!(out, "        Ok(items) => items,");
+        let _ = writeln!(out, "        Err(_) => return std::ptr::null_mut(),");
+        let _ = writeln!(out, "    }};");
+        let _ = writeln!(
+            out,
+            "    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {index}::new(items)))"
+        );
+        let _ = writeln!(
+            out,
+            "        .map_or(std::ptr::null_mut(), |index| Box::into_raw(Box::new(index)))"
+        );
+        let _ = writeln!(out, "}}");
+
+        let _ = writeln!(out);
+        let _ = writeln!(out, "/// Frees a `{}`.", s.class);
+        let _ = writeln!(out, "///");
+        let _ = writeln!(out, "/// # Safety");
+        let _ = writeln!(out, "///");
+        let _ = writeln!(
+            out,
+            "/// `h` comes from `rust_anything_lb_{name}_new`, once."
+        );
+        let _ = writeln!(
+            out,
+            "// SAFETY: exported unmangled under a name only rust-anything defines."
+        );
+        let _ = writeln!(out, "#[unsafe(no_mangle)]");
+        let _ = writeln!(
+            out,
+            "// SAFETY: callers uphold the contract under `# Safety`."
+        );
+        let _ = writeln!(
+            out,
+            "pub unsafe extern \"C\" fn rust_anything_lb_{name}_free(h: *mut {index}) {{"
+        );
+        let _ = writeln!(out, "    if !h.is_null() {{");
+        let _ = writeln!(
+            out,
+            "        // SAFETY: `h` was boxed by `_new` and Lua frees it once with ffi.gc."
+        );
+        let _ = writeln!(out, "        drop(unsafe {{ Box::from_raw(h) }});");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "}}");
+
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "/// `{}` over every item: the answer is JSON with `ok` or `error`.",
+            s.f.js_name
+        );
+        let _ = writeln!(out, "///");
+        let _ = writeln!(out, "/// # Safety");
+        let _ = writeln!(out, "///");
+        let _ = writeln!(
+            out,
+            "/// `h` is a live handle and `args` a NUL-terminated JSON array, valid for this call."
+        );
+        let _ = writeln!(
+            out,
+            "// SAFETY: exported unmangled under a name only rust-anything defines."
+        );
+        let _ = writeln!(out, "#[unsafe(no_mangle)]");
+        let _ = writeln!(
+            out,
+            "// SAFETY: callers uphold the contract under `# Safety`."
+        );
+        let _ = writeln!(
+            out,
+            "pub unsafe extern \"C\" fn rust_anything_lb_{name}_run(h: *const {index}, args: *const c_char) -> *mut c_char {{"
+        );
+        let _ = writeln!(out, "    let json = lua_batch_str(args);");
+        let _ = writeln!(out, "    lua_batch_answer(");
+        let _ = writeln!(out, "        || -> Result<Value, String> {{");
+        let _ = writeln!(
+            out,
+            "            let args: Vec<Value> = serde_json::from_str(&json).map_err(|e| e.to_string())?;"
+        );
+        out.push_str(&decode);
+        let _ = writeln!(
+            out,
+            "            // SAFETY: Lua keeps the batch alive during the call."
+        );
+        let _ = writeln!(out, "            let index = unsafe {{ &*h }};");
+        let _ = writeln!(out, "            let out = index.run({args})?;");
+        let _ = writeln!(
+            out,
+            "            Ok(Value::Array(out.into_iter().map(|r| {out_value}).collect()))"
+        );
+        let _ = writeln!(out, "        }},");
+        let _ = writeln!(out, "        |v| v,");
+        let _ = writeln!(out, "    )");
+        let _ = writeln!(out, "}}");
+
+        if let Some(rank) = rank_for(&s) {
+            let from = out.len();
+            let _ = writeln!(out);
+            let _ = writeln!(
+                out,
+                "/// Indexes of the items whose result is at least `min`, best first."
+            );
+            let _ = writeln!(out, "///");
+            let _ = writeln!(out, "/// # Safety");
+            let _ = writeln!(out, "///");
+            let _ = writeln!(
+                out,
+                "/// `h` is a live handle and `args` a NUL-terminated JSON array."
+            );
+            let _ = writeln!(
+                out,
+                "// SAFETY: exported unmangled under a name only rust-anything defines."
+            );
+            let _ = writeln!(out, "#[unsafe(no_mangle)]");
+            let _ = writeln!(
+                out,
+                "// SAFETY: callers uphold the contract under `# Safety`."
+            );
+            let _ = writeln!(
+                out,
+                "pub unsafe extern \"C\" fn rust_anything_lb_{name}_rank(h: *const {index}, args: *const c_char, min: f64) -> *mut c_char {{"
+            );
+            let _ = writeln!(out, "    let json = lua_batch_str(args);");
+            let _ = writeln!(out, "    lua_batch_answer(");
+            let _ = writeln!(out, "        || -> Result<Value, String> {{");
+            let _ = writeln!(
+                out,
+                "            let args: Vec<Value> = serde_json::from_str(&json).map_err(|e| e.to_string())?;"
+            );
+            out.push_str(&decode);
+            let _ = writeln!(
+                out,
+                "            // SAFETY: Lua keeps the batch alive during the call."
+            );
+            let _ = writeln!(out, "            let index = unsafe {{ &*h }};");
+            let _ = writeln!(out, "            let out = index.run({args})?;");
+            let _ = writeln!(out, "            {rank}");
+            let _ = writeln!(
+                out,
+                "            Ok(Value::Array(order.into_iter().map(|i| json!(i)).collect()))"
+            );
+            let _ = writeln!(out, "        }},");
+            let _ = writeln!(out, "        |v| v,");
+            let _ = writeln!(out, "    )");
+            let _ = writeln!(out, "}}");
+            use_custom_rank(&mut out, from, &s, &names);
+        }
+    }
+    Ok(out)
+}
+
+/// The batch source: declarations, `lb_answer` and the classes. `standalone` adds the FFI module
+/// header and `return M`; otherwise the source is injected into the main wrapper, whose `ffi`,
+/// `native`, `codec` and `M` locals it shares.
+fn lua_batch_source(m: &Manifest, api: &PortApi, standalone: bool) -> Result<String, String> {
+    if m.batches.is_empty() {
+        return Ok(String::new());
+    }
+    let lib = m.lib_name();
+    let mut out = String::new();
+    if standalone {
+        let _ = writeln!(
+            out,
+            "-- Batch classes for `{}`, generated by rust-anything.",
+            m.unit
+        );
+        let _ = writeln!(
+            out,
+            "-- Items stay in Rust; `run` and `rank` use all cores through LuaJIT FFI."
+        );
+        let _ = writeln!(out, "local ffi = require('ffi')");
+    }
+    let _ = writeln!(out, "ffi.cdef[[");
+    for b in &m.batches {
+        let s = spec_with(b, api, true)?;
+        let name = s.f.rust_name.trim_start_matches("r#");
+        let _ = writeln!(out, "void *rust_anything_lb_{name}_new(const char *items);");
+        let _ = writeln!(out, "void rust_anything_lb_{name}_free(void *h);");
+        let _ = writeln!(
+            out,
+            "char *rust_anything_lb_{name}_run(void *h, const char *args);"
+        );
+        if rank_for(&s).is_some() {
+            let _ = writeln!(
+                out,
+                "char *rust_anything_lb_{name}_rank(void *h, const char *args, double min);"
+            );
+        }
+    }
+    let _ = writeln!(out, "void rust_anything_lb_free(char *ptr);");
+    let _ = writeln!(out, "]]");
+    if standalone {
+        let _ = writeln!(
+            out,
+            "local native = ffi.load(os.getenv('RUST_ANYTHING_LUA_LIB') or '{lib}_native.so')"
+        );
+        let _ = writeln!(out, "local codec = require('rust_anything_codec')");
+        let _ = writeln!(out, "local M = {{}}");
+    }
+    let _ = writeln!(out, "local function lb_answer(ptr)");
+    let _ = writeln!(out, "  local raw = ffi.string(ptr)");
+    let _ = writeln!(out, "  native.rust_anything_lb_free(ptr)");
+    let _ = writeln!(out, "  local answer = codec.decode(raw)");
+    let _ = writeln!(
+        out,
+        "  if answer.panic then error('Rust panic: ' .. tostring(answer.panic), 0) end"
+    );
+    let _ = writeln!(out, "  if answer.error then error(answer.error, 0) end");
+    let _ = writeln!(out, "  return codec.normalize(answer.ok)");
+    let _ = writeln!(out, "end");
+    for b in &m.batches {
+        let s = spec_with(b, api, true)?;
+        let name = s.f.rust_name.trim_start_matches("r#");
+        let class = &s.class;
+        let e = export(m, b)?;
+        let rest: Vec<&str> = e
+            .params
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != s.item)
+            .map(|(_, p)| p.name.as_str())
+            .collect();
+        let sig = rest.join(", ");
+        let args_enc = if rest.is_empty() {
+            "{}".to_string()
+        } else {
+            format!("{{ {} }}", rest.join(", "))
+        };
+        let _ = writeln!(out, "local {class}_mt = {{}}");
+        let _ = writeln!(out, "{class}_mt.__index = {class}_mt");
+        let _ = writeln!(out, "function {class}_mt:run({sig})");
+        let _ = writeln!(
+            out,
+            "  local ptr = native.rust_anything_lb_{name}_run(self.h, codec.encode({args_enc}))"
+        );
+        let _ = writeln!(out, "  return lb_answer(ptr)");
+        let _ = writeln!(out, "end");
+        if rank_for(&s).is_some() {
+            let rank_sig = if sig.is_empty() {
+                "min".to_string()
+            } else {
+                format!("{sig}, min")
+            };
+            let _ = writeln!(out, "function {class}_mt:rank({rank_sig})");
+            let _ = writeln!(
+                out,
+                "  local ptr = native.rust_anything_lb_{name}_rank(self.h, codec.encode({args_enc}), min)"
+            );
+            let _ = writeln!(out, "  return lb_answer(ptr)");
+            let _ = writeln!(out, "end");
+        }
+        let _ = writeln!(out, "M.{class} = setmetatable({{}}, {{");
+        let _ = writeln!(out, "  __call = function(_, items)");
+        let _ = writeln!(
+            out,
+            "    if type(items) ~= 'table' then error('{class}: items must be a table', 2) end"
+        );
+        let _ = writeln!(
+            out,
+            "    local h = native.rust_anything_lb_{name}_new(codec.encode(items))"
+        );
+        let _ = writeln!(
+            out,
+            "    if h == nil then error('{class}: building batch failed', 2) end"
+        );
+        let _ = writeln!(out, "    ffi.gc(h, native.rust_anything_lb_{name}_free)");
+        let _ = writeln!(out, "    return setmetatable({{ h = h }}, {class}_mt)");
+        let _ = writeln!(out, "  end,");
+        let _ = writeln!(out, "}})");
+        let _ = writeln!(out, "M.{class}.new = M.{class}");
+        let _ = writeln!(out);
+    }
+    if standalone {
+        let _ = writeln!(out, "return M\n");
+    }
+    Ok(out)
+}
+
+/// Batch classes injected into the main FFI wrapper, before its `return M`. Kept self-contained so
+/// the generated driver (which loads only this file) finds the classes during `diff`.
+pub fn lua_wrapper(m: &Manifest, api: &PortApi) -> Result<String, String> {
+    lua_batch_source(m, api, false)
+}
+
+/// The same classes as a standalone FFI module, written beside the wrapper. `build` regenerates
+/// only the main wrapper, so this file keeps the batch API available after building.
+pub fn lua_batch_module(m: &Manifest, api: &PortApi) -> Result<String, String> {
+    lua_batch_source(m, api, true)
+}
+
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
+    use crate::codegen::PortFn;
+    use crate::ts::exports::Param;
 
     #[test]
     fn ruby_params() {
@@ -1172,5 +1594,147 @@ mod tests {
         assert_eq!(param_name("max: nil"), "max");
         assert_eq!(param_name("*rest"), "rest");
         assert_eq!(param_name("sep = \"-\""), "sep");
+    }
+
+    fn lua_manifest() -> Manifest {
+        Manifest {
+            schema: "rust-anything/bridge@1".into(),
+            root: PathBuf::from("."),
+            root_written: None,
+            unit: "score.lua".into(),
+            language: crate::lang::Lang::Lua,
+            kind: crate::bridge::Kind::Ffi,
+            crate_name: "score-rs".into(),
+            exports: vec![ExportedFn {
+                name: "score".into(),
+                file: "score.lua".into(),
+                line: 1,
+                params: vec![Param {
+                    name: "x".into(),
+                    ts_type: "unknown".into(),
+                    ..Default::default()
+                }],
+                returns: "unknown".into(),
+                ..Default::default()
+            }],
+            classes: Vec::new(),
+            js_only: Vec::new(),
+            batches: vec![Batch {
+                function: "score".into(),
+                param: "x".into(),
+            }],
+            float_tolerance: None,
+        }
+    }
+
+    fn lua_api(ret: &str, custom: bool) -> PortApi {
+        let mut api = PortApi {
+            functions: vec![PortFn {
+                js_name: "score".into(),
+                rust_name: "score".into(),
+                params: vec![("x".into(), "serde_json::Value".into())],
+                ret: ret.into(),
+                fallible: false,
+                is_async: false,
+            }],
+            ..Default::default()
+        };
+        if custom {
+            api.structs.push("ScoreIndex".into());
+            api.ranked.push("ScoreIndex".into());
+        }
+        api
+    }
+
+    #[test]
+    fn lua_rs_emits_c_abi_over_port_and_default_index() {
+        let rs = lua_rs(&lua_manifest(), &lua_api("serde_json::Value", false)).unwrap();
+        for piece in [
+            "rust_anything_lb_score_new",
+            "rust_anything_lb_score_free",
+            "rust_anything_lb_score_run",
+            "ScoreDefaultIndex",
+            "port::score(",
+            "index.run()",
+            "lua_batch_answer(",
+            "rust_anything_lb_free",
+            "#[unsafe(no_mangle)]",
+        ] {
+            assert!(rs.contains(piece), "batch Rust is missing {piece}");
+        }
+        // A Value result cannot be ranked without a custom index: rank_body only knows numbers.
+        assert!(!rs.contains("rust_anything_lb_score_rank"));
+    }
+
+    #[test]
+    fn lua_rs_emits_rank_for_a_custom_index() {
+        // `rank` needs a numeric port result (rank_body) even when the index ranks itself.
+        let rs = lua_rs(&lua_manifest(), &lua_api("f64", true)).unwrap();
+        assert!(rs.contains("rust_anything_lb_score_rank"));
+        assert!(rs.contains("index.rank(min)"), "{rs}");
+        assert!(!rs.contains("ScoreDefaultIndex"));
+    }
+
+    #[test]
+    fn lua_batch_module_exposes_batch_class_over_ffi() {
+        let m = lua_manifest();
+        let lua = lua_batch_module(&m, &lua_api("serde_json::Value", false)).unwrap();
+        for piece in [
+            "local ffi = require('ffi')",
+            "ffi.cdef[[",
+            "void *rust_anything_lb_score_new(const char *items);",
+            "char *rust_anything_lb_score_run(void *h, const char *args);",
+            "void rust_anything_lb_free(char *ptr);",
+            "local native = ffi.load(",
+            "native.rust_anything_lb_free(ptr)",
+            "function ScoreBatch_mt:run()",
+            "M.ScoreBatch = setmetatable({}, {",
+            "M.ScoreBatch.new = M.ScoreBatch",
+            "ffi.gc(h, native.rust_anything_lb_score_free)",
+            "return M",
+        ] {
+            assert!(lua.contains(piece), "batch Lua is missing {piece}: {lua}");
+        }
+        assert!(!lua.contains("rank(void *h"));
+    }
+
+    #[test]
+    fn lua_batch_module_rank_forwards_min_as_a_double() {
+        let m = lua_manifest();
+        let lua = lua_batch_module(&m, &lua_api("f64", true)).unwrap();
+        assert!(lua.contains("function ScoreBatch_mt:rank(min)"), "{lua}");
+        assert!(lua.contains("codec.encode({}), min)"), "{lua}");
+    }
+
+    #[test]
+    fn lua_rs_decodes_fixed_params_from_the_json_args() {
+        let mut m = lua_manifest();
+        m.exports[0].params.push(Param {
+            name: "k".into(),
+            ts_type: "unknown".into(),
+            ..Default::default()
+        });
+        let mut api = lua_api("f64", false);
+        api.functions[0]
+            .params
+            .push(("k".into(), "serde_json::Value".into()));
+        let rs = lua_rs(&m, &api).unwrap();
+        assert!(
+            rs.contains("let k = arg::<serde_json::Value>(&args, 0)?;"),
+            "{rs}"
+        );
+        assert!(rs.contains("index.run(k)"), "{rs}");
+    }
+
+    #[test]
+    fn lua_wrapper_is_injectable_and_self_contained() {
+        let m = lua_manifest();
+        let lua = lua_wrapper(&m, &lua_api("f64", true)).unwrap();
+        assert!(!lua.contains("local ffi = require('ffi')"), "{lua}");
+        assert!(!lua.contains("local M = {}"), "{lua}");
+        assert!(!lua.contains("return M"), "{lua}");
+        assert!(lua.contains("ffi.cdef[["));
+        assert!(lua.contains("M.ScoreBatch = setmetatable({}, {"));
+        assert!(lua.contains("function ScoreBatch_mt:rank(min)"));
     }
 }

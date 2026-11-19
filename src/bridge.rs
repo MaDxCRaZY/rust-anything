@@ -1393,6 +1393,9 @@ fn ffi_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String, Str
                 &crate::codegen_batch_native::java_rs(m, api).map_err(anyhow::Error::msg)?,
             );
         }
+        if m.language == crate::lang::Lang::Lua {
+            lib.push_str(&crate::codegen_batch_native::lua_rs(m, api).map_err(anyhow::Error::msg)?);
+        }
         if matches!(m.language, crate::lang::Lang::Go | crate::lang::Lang::Java) {
             lib = lib.replacen("pub mod port;", "pub mod port;\npub mod wire;", 1);
         }
@@ -1451,10 +1454,21 @@ fn ffi_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String, Str
             ));
         }
         crate::lang::Lang::Lua => {
-            files.push((
-                crate::harness_lua::wrapper_path(m),
-                crate::codegen_lua::wrapper(m).map_err(anyhow::Error::msg)?,
-            ));
+            let mut wrapper = crate::codegen_lua::wrapper(m).map_err(anyhow::Error::msg)?;
+            if !m.batches.is_empty() {
+                // Keep the main wrapper self-contained for `diff`, which loads only this file.
+                let batches =
+                    crate::codegen_batch_native::lua_wrapper(m, api).map_err(anyhow::Error::msg)?;
+                wrapper = wrapper.replacen("\nreturn M\n", &format!("\n{batches}\nreturn M\n"), 1);
+                // `build` regenerates only the main wrapper; this module keeps the batch API.
+                let batch_module = format!("{}_batch", m.lib_name());
+                files.push((
+                    format!("lua/{batch_module}.lua"),
+                    crate::codegen_batch_native::lua_batch_module(m, api)
+                        .map_err(anyhow::Error::msg)?,
+                ));
+            }
+            files.push((crate::harness_lua::wrapper_path(m), wrapper));
             files.push((
                 "lua/rust_anything_codec.lua".into(),
                 crate::codegen_lua::CODEC_LUA.into(),

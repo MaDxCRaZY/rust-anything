@@ -23,6 +23,7 @@ pub mod error_paths;
 pub mod from_tests;
 pub mod front_door;
 pub mod front_door_http;
+pub mod game_harness;
 pub mod gate;
 pub mod harness;
 pub mod harness_c;

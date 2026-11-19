@@ -203,11 +203,17 @@ pub fn build(crate_dir: &Path, m: &Manifest) -> Result<PathBuf> {
     let target = crate_dir.join(format!("lua/{}_native.{ext}", m.lib_name()));
     std::fs::create_dir_all(crate_dir.join("lua"))?;
     std::fs::copy(&lib, &target)?;
-    // The generated wrapper and codec sit beside the native library.
-    std::fs::write(
-        crate_dir.join(wrapper_path(m)),
-        crate::codegen_lua::wrapper(m).map_err(anyhow::Error::msg)?,
-    )?;
+    // The generated wrapper and codec sit beside the native library. Preserve the
+    // batch-aware wrapper injected by `bridge --batch` when this crate has batches.
+    let wrapper = if m.batches.is_empty() {
+        crate::codegen_lua::wrapper(m).map_err(anyhow::Error::msg)?
+    } else {
+        let port = std::fs::read_to_string(crate_dir.join("src/port.rs"))
+            .with_context(|| "reading src/port.rs for Lua batch wrapper")?;
+        let api = crate::codegen::parse_port(&port);
+        crate::codegen_batch_native::lua_wrapper(m, &api).map_err(anyhow::Error::msg)?
+    };
+    std::fs::write(crate_dir.join(wrapper_path(m)), wrapper)?;
     std::fs::write(
         crate_dir.join("lua/rust_anything_codec.lua"),
         crate::codegen_lua::CODEC_LUA,
