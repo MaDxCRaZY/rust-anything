@@ -8,6 +8,8 @@ Status values: `PARITY` (Rust unit with passing diff gate), `PARTIAL` (subset po
 
 | Module | Status | Rust unit / evidence | Notes / degradation |
 |---|---|---|---|
+| conf.lua | DONE (harness) | headless frame harness / game-record | ported config shim; no gameplay logic |
+| main.lua | NOT STARTED | — | 653 KB entry point; cannot load headlessly (blocker B1 chain) |
 | src/game/luck.lua | PARTIAL | tmp_r1_luck (12 ABI exports, 1543/1543) | 23 higher-level hidden functions kept in Lua; R6 decision needed |
 | src/game/slot.lua | PARTIAL | tmp_r2_slot (4 pure evaluators, 56/56) | rest of slot engine kept in Lua |
 | src/game/combat.lua | BLOCKED | tmp_r2_combat/reach_crate (3 helpers, 41/41) | full unit exceeds LuaJIT 200-local limit; R6 blocker |
