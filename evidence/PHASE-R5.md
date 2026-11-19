@@ -13,6 +13,9 @@ Re-verification requested. All parity crates re-checked after the fix.
 | 1 | Lua shadow runs original + Rust in-game | DONE | `[rust-anything] shadow: 1543 calls, 0 mismatches (mode=shadow)` |
 | 2 | `bridge --batch` for Lua passes gate | DONE | batch scratch crate `12/12 cases match`; C ABI symbols + `ScoreBatch` survive `build` |
 | 3 | `profile` emits ranked hot functions | DONE | LuaJIT `-jp` run: `add` 10 ms self, `spin` 2 ms self; fallback instrumentation also verified |
+| 4 | Tests + clippy | DONE | `cargo test --lib` 189/189; `cargo clippy --all-targets -- -D warnings` clean |
+| 5 | Shadow mode dispatch + kill switch | DONE | `shadow/old/new` results `1,0`; calls 2/0/0; kill switch forces old |
+| 6 | Artifact hashes | DONE | 8/8 R5-relevant sources match `artifacts.sha256` |
 
 ## Command transcript (verbatim key output)
 

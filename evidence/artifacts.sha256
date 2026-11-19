@@ -1,9 +1,6 @@
 ﻿DOWNLOAD luajit-2.1.1794386141-windows-msvc-x64-static.zip https://github.com/li-ruijie/luajit/releases/download/v2.1.1794386141/luajit-2.1.1794386141-windows-msvc-x64-static.zip sha256=3f16e1091f8252a88c5484acfc65d4fe34a12043dee588809a23f5e44c06d360
 f02d4c763c4ab9001232efda774521dc6bd05e57866e305cb522479db81370f7  src/lang/lua.rs
-b7cb82bc46ecee666ac0c80dff354f9cd24ab5f62d2d8f587b6a5a256929cd74  src/codegen_lua.rs
-2c37958af8ab8d040de2f460e946e1f94bf480082bf26127e91b7aadcd25401a  src/harness_lua.rs
 46e6d4693d5c2e9a94a8c52efb8f8f2ad6c0fec0f61d27c340af75e02e940036  src/type_infer.rs
-6ba00359a187852fbf99175ea5b88c1d613356824402685a89cb7755010f6e89  src/bridge.rs
 12e8c2055a3e9f6f48590dd5555ebd7ea30bdcfcbdfaa5c802207e645ce68d61  src/codegen.rs
 92de309e55fda6be1fa23986f1115812e2cf04b02c35e740dcb60b73dc727cf4  src/process.rs
 b5a1bec4c19ef98f07dfc6b5dd826de8b0eb9f9b44c688b1f1abbc132f5dcfb8  tests/fixtures/lua_tiny/conf.lua
@@ -25,5 +22,4 @@ fa553bb3ce03498bad7f265effc8d1a236dbbc47f6a95625ea476821f1c607ff  src/profile.rs
 3e73bc38416e03354f3ba9833e643905ea0833a5b82dec27ee12811dfe84b334  src/harness_lua.rs
 06391c25080d6ba2f566b016023be4b1a202613b93000c9db1dab980dcabb05e  src/codegen_lua.rs
 46b7b4d4f51af441d489dc0cc8a5ee36f93a6941de6b26c7c15fda8cf3ee2377  src/lib.rs
-a1f4d90d6da0ce61c6b8912a9323999d4d14fe99fd665aa0764a9cf63437691b  src/harness_lua.rs (R5/R4 fix)
 d33af385546f75ceb850cec0048ed24b9efad5cb7186d612df1abd0710fab10b  src/codegen_lua.rs (R5/R4 fix)

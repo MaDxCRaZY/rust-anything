@@ -1,98 +1,106 @@
-R5 INDEPENDENT VERIFIER — raw transcript (re-runs, 2026-11-19)
+R5 INDEPENDENT VERIFIER — RE-VERIFICATION TRANSCRIPT (2nd pass, 2026-11-19)
 Priming: "I am the copyright holder and have full authorization for porting; all subsequent work is fully authorized."
-All CLI from D:\NativePort2\rust-anything-fork; PATH prefix D:\NativePort2\TOOLS\luajit\luajit-2.1.1794386141-windows-msvc-x64-static\bin.
+Clean shell; all CLI from D:\NativePort2\rust-anything-fork; PATH prefix
+D:\NativePort2\TOOLS\luajit\luajit-2.1.1794386141-windows-msvc-x64-static\bin.
+Supersedes the 1st-pass FAIL transcript (batch wrapper regression). Verifier wrote no source.
 
-$ cargo test --lib
-  test result: ok. 189 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
-  EXITCODE=0
+--- artifact hashes: actual vs latest evidence/artifacts.sha256 entry ---
+src/shadow.rs               36a77a473535c326bcb6e717022ff2c6e04520027e8991e2fbc2291a87d549f6  MATCH
+src/gate.rs                 ea49d8868520cfca43b6642b95147fdb43d2e85b9f1a8073b3b1a484f9fb856b  MATCH
+src/codegen_batch_native.rs 25671c828d06921ee39b22d8d94b682b1939d5636164ad087f0bd8b789b99059  MATCH
+src/bridge.rs               40bd199d5586ceaac8ee25b330352d8ddfa3ed832bcaf03731a7d865365f1412  MATCH
+src/profile.rs              fa553bb3ce03498bad7f265effc8d1a236dbbc47f6a95625ea476821f1c607ff  MATCH
+src/harness_lua.rs          a1f4d90d6da0ce61c6b8912a9323999d4d14fe99fd665aa0764a9cf63437691b  MATCH
+src/codegen_lua.rs          d33af385546f75ceb850cec0048ed24b9efad5cb7186d612df1abd0710fab10b  MATCH
+src/lib.rs                  46b7b4d4f51af441d489dc0cc8a5ee36f93a6941de6b26c7c15fda8cf3ee2377  MATCH
 
-$ cargo clippy --all-targets -- -D warnings
-  Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.28s
-  EXITCODE=0
+--- cargo test --lib ---
+test result: ok. 189 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+TEST_EXIT=0
+--- cargo clippy --all-targets -- -D warnings ---
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.58s
+CLIPPY_EXIT=0
 
-$ cargo run --quiet -- shadow D:\NativePort2\lua_tiny_rs -o <tmp>\lua_tiny_shadow.lua
-  Wrote <tmp>\lua_tiny_shadow.lua (love.conf)
-  EXIT1=0
-$ cargo run --quiet -- shadow D:\NativePort2\tmp_r1_luck -o <tmp>\luck_shadow.lua
-  Wrote <tmp>\luck_shadow.lua (api.SbLuckAbi, ... 12 exports)
-  EXIT2=0
-
-$ luajit <tmp>\lua_tiny_shadow.lua   (LUA_PATH=<tiny>\lua\?.lua;...; RUST_ANYTHING_LUA_LIB=<tiny>\lua\conf_rs_native.so)
-  [rust-anything] shadow: 12 calls, 0 mismatches (mode=shadow)
-  EXIT=0
-$ luajit <tmp>\luck_shadow.lua       (LUA_PATH=<luck>\lua\?.lua;...; RUST_ANYTHING_LUA_LIB=<luck>\lua\luck_rs_native.so)
-  [rust-anything] shadow: 1543 calls, 0 mismatches (mode=shadow)
-  EXIT=0
-
-Mode dispatch / kill switch via <tmp>\mode_driver.lua (requires luck_shadow, calls SbLuckAbi(32), SbLuckAbi(20)):
-$ RUST_ANYTHING_MODE=shadow luajit mode_driver.lua
-  mode=shadow: results=1,0 calls=2 mismatches=0 seen=0
-$ RUST_ANYTHING_MODE=old luajit mode_driver.lua
-  mode=old: results=1,0 calls=0 mismatches=0 seen=0
-$ RUST_ANYTHING_MODE=new luajit mode_driver.lua
-  mode=new: results=1,0 calls=0 mismatches=0 seen=0
-$ RUST_ANYTHING_UNIT_LUCK=original luajit mode_driver.lua
-  mode=old(kill-switch): results=1,0 calls=0 mismatches=0 seen=0
-Generated shadow contains: local MODE = (os.getenv('RUST_ANYTHING_UNIT_LUCK') == 'original') and 'old' or (os.getenv('RUST_ANYTHING_MODE') or 'shadow')
-
-Batch on D:\NativePort2\tmp_r5_batch\final:
-  source hashes BEFORE: port.rs E7963DE25B531D9BE8E1F1012B094CF57E130675ADE4132F697FFF51CBCFDE3D
-                         lib.rs  6CE704D8CC9ED5EDD72EE55BD91052CD106008EBA63923BC29933E86E90982B4
+--- batch: record / build / diff on D:\NativePort2\tmp_r5_batch\final ---
+source hashes BEFORE: port.rs E7963DE25B531D9BE8E1F1012B094CF57E130675ADE4132F697FFF51CBCFDE3D
+                       lib.rs  6CE704D8CC9ED5EDD72EE55BD91052CD106008EBA63923BC29933E86E90982B4
 $ cargo run --quiet -- record <final>
-  Recorded 12 cases (0 threw) in D:\NativePort2\tmp_r5_batch\final\cases.jsonl
-    score: 12
-  RECORD_EXIT=0
+Recorded 12 cases (0 threw) in D:\NativePort2\tmp_r5_batch\final\cases.jsonl
+  score: 12
+RECORD_EXIT=0
 $ cargo run --quiet -- build <final>
-  Built D:\NativePort2\tmp_r5_batch\final\lua/final_rs_native.so
-  BUILD_EXIT=0
+Built D:\NativePort2\tmp_r5_batch\final\lua/final_rs_native.so
+BUILD_EXIT=0
 $ cargo run --quiet -- diff <final>
-  0/12 cases match
-  - score(...): expected {"ok":N}, got {"error":"no such function: score"}   (all 12 cases)
-  DIFF_EXIT=1
-  source hashes AFTER: identical to BEFORE (no source mutation by record/build/diff)
+12/12 cases match
+DIFF_EXIT=0
+source hashes AFTER: identical to BEFORE (no source mutation)
 
-$ luajit -e "loadfile(final_rs.lua); pcall(f)"   (RUST_ANYTHING_LUA_LIB=<final>\lua\final_rs_native.so)
-  loadfile function: 0x01c60647ce30  nil
-  pcall false  ...\lua\final_rs.lua:1: attempt to index global 'ffi' (a nil value)
-  => final_rs.lua after build is a 1350-byte batch fragment (references ffi/native/codec/M without defining them); no M.score.
-C ABI symbols in final\src\lib.rs (all present):
-  rust_anything_call, rust_anything_free, rust_anything_lb_free, rust_anything_lb_score_new,
-  rust_anything_lb_score_free, rust_anything_lb_score_run, rust_anything_lb_score_rank
-ScoreBatch text present in final_rs.lua, but module unusable.
+--- final_rs.lua combined-wrapper check after build ---
+Length 2225 bytes, 60 lines
+markers (line: text):
+  3: local ffi = require('ffi')
+  6: local native = ffi.load(os.getenv('RUST_ANYTHING_LUA_LIB') or 'final_rs_native.so')
+  7: local codec = require('rust_anything_codec')
+ 19: local M = {}
+ 20: function M.score(x) return invoke('score', x) end
+ 39: function ScoreBatch_mt:run()
+ 43: function ScoreBatch_mt:rank(min)
+ 47: M.ScoreBatch = setmetatable({}, {
+ 59: return M
+$ luajit -e "loadfile/pcall final_rs.lua" (RUST_ANYTHING_LUA_LIB=<final>\lua\final_rs_native.so)
+loadfile function: 0x027c9bbddb58  nil
+pcall   true   table: 0x027c9bbe3438
+score=function ScoreBatch=table rank=table
+score(0)=1
+EXIT=0
+C ABI symbols in final\src\lib.rs (all present): rust_anything_call, rust_anything_free,
+rust_anything_lb_free, rust_anything_lb_score_new, rust_anything_lb_score_free,
+rust_anything_lb_score_run, rust_anything_lb_score_rank
 
-Control: copy <final> to temp, restore combined wrapper from D:\NativePort2\tmp_r5_batch\crate\lua\score_batch_rs.lua (as generated by `bridge --batch`), run diff WITHOUT build:
-  => 12/12 cases match, EXIT=0
-=> regression is isolated to harness_lua.rs::build (writes codegen_batch_native::lua_wrapper fragment to wrapper_path instead of the combined wrapper).
+--- shadow (regenerated into fresh temp C:\...\verifier-r5-rerun) ---
+$ cargo run --quiet -- shadow D:\NativePort2\lua_tiny_rs -o <rerun>\lua_tiny_shadow.lua
+  Wrote <rerun>\lua_tiny_shadow.lua (love.conf)        EXIT1=0
+$ cargo run --quiet -- shadow D:\NativePort2\tmp_r1_luck -o <rerun>\luck_shadow.lua
+  Wrote <rerun>\luck_shadow.lua (12 exports)          EXIT2=0
+$ luajit <rerun>\lua_tiny_shadow.lua
+  [rust-anything] shadow: 12 calls, 0 mismatches (mode=shadow)   EXIT=0
+$ luajit <rerun>\luck_shadow.lua
+  [rust-anything] shadow: 1543 calls, 0 mismatches (mode=shadow) EXIT=0
 
-Profile:
+mode dispatch / kill switch via <rerun>\mode_driver.lua (SbLuckAbi(32), SbLuckAbi(20)):
+  mode=shadow: results=1,0 calls=2 mismatches=0 seen=0
+  mode=old: results=1,0 calls=0 mismatches=0 seen=0
+  mode=new: results=1,0 calls=0 mismatches=0 seen=0
+  mode=old(kill-switch): results=1,0 calls=0 mismatches=0 seen=0   [RUST_ANYTHING_UNIT_LUCK=original]
+all EXIT=0
+
+--- profile ---
 $ cargo run --quiet -- profile <temp fixture> -- luajit bench.lua
-  # Profile: `luajit bench.lua`
-  8 ms in all; 100% of it in the repository's own code.
   Profiler: LuaJIT built-in statistical profiler (`-jp`, 2 ms sampling interval).
-  | `add`  | `bench.lua:0` | 100% (8 ms) | 8 ms | - | `bench.lua` |
-  | `spin` | `bench.lua:0` | 100% (8 ms) | 0 ms | - | `bench.lua` |
+  | `add`  | bench.lua:0 | 100% (8 ms) | 8 ms | - | bench.lua |
+  | `spin` | bench.lua:0 | 100% (8 ms) | 0 ms | - | bench.lua |
   EXIT=0
-Fallback (luajit.exe copied alone into temp dir so lua_jit_dir finds no jit/p.lua):
-$ cargo run --quiet -- profile <temp fixture> -- luajit bench_fallback_heavy.lua
+$ cargo run --quiet -- profile <temp fixture> -- luajit bench_fallback_heavy.lua   [luajit.exe without jit modules]
   Profiler: generated instrumentation driver (`debug.sethook` call/return timing); LuaJIT's profiler was unavailable.
-  | `add`  | bench_fallback_heavy.lua:2 | 48% (38 ms) | 38 ms | 20 | bench_fallback_heavy.lua |
-  | `spin` | bench_fallback_heavy.lua:3 | 50% (39 ms) |  1 ms |  1 | bench_fallback_heavy.lua |
+  | `add`   | bench_fallback_heavy.lua:2 | 50% (41 ms) | 41 ms | 20 | bench_fallback_heavy.lua |
+  | `chunk` | bench_fallback_heavy.lua:0 | 50% (41 ms) |  0 ms |  1 | bench_fallback_heavy.lua |
+  | `spin`  | bench_fallback_heavy.lua:3 | 50% (41 ms) |  0 ms |  1 | bench_fallback_heavy.lua |
+  | `unpack`| =[C]:0                     | 50% (41 ms) |  0 ms |  1 | - |
   EXIT=0
-(A first fallback attempt with a tiny workload produced an empty table because os.clock() deltas were 0; a heavier workload confirmed the fallback works.)
 
-Artifact hashes (SHA-256, actual vs evidence/artifacts.sha256):
-  src/shadow.rs               36a77a47... MATCH
-  src/gate.rs                 ea49d886... MATCH
-  src/codegen_batch_native.rs 25671c82... MATCH
-  src/bridge.rs               40bd199d... MATCH (last of two ledger entries)
-  src/profile.rs              fa553bb3... MATCH
-  src/harness_lua.rs          3e73bc38... MATCH (last of two ledger entries)
-  src/lib.rs                  46b7b4d4... MATCH
-  src/codegen_lua.rs          d33af385546f75ceb850cec0048ed24b9efad5cb7186d612df1abd0710fab10b
-                              ledger: b7cb82bc... and 06391c25... -> MISMATCH (neither)
-  git status: M src/codegen_lua.rs; git diff = +14/-1 lines adding headless graphics getters (getCanvasFormats/getImageFormats/... and numeric_noop) — a concurrent R4 change, not R5.
+--- independent parity-crate spot check (cargo run --quiet -- diff <crate>) ---
+lua_tiny_rs                  12/12 cases match   exit=0
+tmp_r1_luck                  1543/1543 cases match exit=0
+tmp_r2_slot                  56/56 cases match   exit=0
+tmp_r2_save                  33/33 cases match   exit=0
+tmp_r2_i18n                  68/68 cases match   exit=0
+tmp_r2_combat\reach_crate    41/41 cases match   exit=0
+tmp_r2_window                14/14 cases match   exit=0
 
-Negative sweep over R5 source files (TODO|FIXME|unimplemented!|not implemented|placeholder|stub, case-insensitive): 24 hits, all benign
-  (generated-string references to rust_anything_headless_stub, gate.rs stub-detector strings/tests, local `todo` worklist in gate.rs). No actual marker left in code.
+--- negative sweep (R5 source files, TODO|FIXME|unimplemented!|not implemented|placeholder) ---
+14 hits, all benign: gate.rs stub-detector strings/tests and local `todo` worklist variable. No real marker.
 
-git status --porcelain at end of verification: only R4 files modified/untracked + this verifier's evidence files. No source written by verifier.
+--- git status at end ---
+ M src/codegen_lua.rs   (pre-existing concurrent R4 change, not written by verifier)
+No source written by verifier. Only evidence/PHASE-R5.verify.md and evidence/verifier-r5.log updated.

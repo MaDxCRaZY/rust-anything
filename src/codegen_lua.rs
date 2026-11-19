@@ -236,6 +236,10 @@ local g = {
   getBlendMode = function() return 'alpha' end,
   getLineStyle = function() return 'smooth' end,
   getLineWidth = function() return 1 end,
+  getFont = function() return object(font_methods) end,
+  getRendererInfo = function()
+    return { name = 'headless', vendor = 'headless', version = '1', device = 'headless' }
+  end,
   getCanvasFormats = function()
     return { rgba8 = true, rgba16f = true, rgba32f = true,
       depth24stencil8 = true, stencil8 = true, r8 = true, rg8 = true }
@@ -262,9 +266,15 @@ local g = {
 -- Unknown graphics getters must not return nil: the game compares their results with
 -- numbers. Setters still use noop; a numeric return is harmless when Lua ignores it.
 local function numeric_noop() return 1 end
+_STUB_GETS = _STUB_GETS or {}
 stub.graphics = setmetatable(g, {
   __index = function(_, key)
-    if tostring(key):match('^get') then return numeric_noop end
+    if tostring(key):match('^get') then
+      if os.getenv('RUST_ANYTHING_STUB_TRACE') then
+        _STUB_GETS[#_STUB_GETS + 1] = 'graphics.' .. tostring(key)
+      end
+      return numeric_noop
+    end
     return noop
   end
 })
@@ -282,6 +292,14 @@ stub.window = {
   getPosition = function() return 0, 0 end,
   setPosition = noop,
   setMode = function() return true end,
+  updateMode = noop,
+  getMode = function()
+    return 1280, 720, { fullscreen = false, vsync = 1, borderless = false,
+      resizable = false, highdpi = true, usedpiscale = false, msaa = 0,
+      stencil = false, refreshrate = 60, x = 0, y = 0 }
+  end,
+  getVSync = function() return 1 end,
+  getFullscreen = no,
   setVSync = noop, setFullscreen = noop, setIcon = noop,
   setMinimumSize = noop, setResizable = noop, setDisplay = noop,
   isFullscreen = no, isMaximized = no, hasFocus = function() return true end,
@@ -367,6 +385,7 @@ stub.filesystem = {
   getRequirePath = function() return '' end,
   setRequirePath = noop,
   getSource = function() return nil end,
+  getSourceBaseDirectory = function() return game_root end,
   setSource = noop,
   isFused = function() return false end,
   getWrittenStatus = function() return nil end,
@@ -452,6 +471,20 @@ stub.data = {
   compress = blank, decompress = blank,
   getCompressorFormats = empty, getHashFormats = empty, getEncoderFormats = empty
 }
+
+-- Trace any remaining unknown module/key lookups so stub gaps are diagnosable.
+for module_name, mod in pairs(stub) do
+  if type(mod) == 'table' and getmetatable(mod) == nil then
+    setmetatable(mod, {
+      __index = function(_, key)
+        if os.getenv('RUST_ANYTHING_STUB_TRACE') then
+          _STUB_GETS[#_STUB_GETS + 1] = module_name .. '.' .. tostring(key)
+        end
+        return noop
+      end
+    })
+  end
+end
 
 -- LÖVE callbacks (load, update, draw, conf, ...) are intentionally NOT set here.
 _G.love = stub

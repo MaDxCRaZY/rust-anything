@@ -18,7 +18,7 @@ run on a real project. **Preview**: works for part of the flow, as described.
 | C | Verified | glibc behind a facade (2026-11-16) | 1,859/1,859 after dropping one undefined-behavior case; gate passes |
 | PHP | Preview | none | `analyze` and whole apps only; units cannot be bridged yet |
 | C# | Preview | none | `analyze` and whole apps only; units cannot be bridged yet |
-| Lua / LÖVE | Preview | SlotBound `src/game/luck.lua` (2026-11-19) | `analyze` covers 66 modules / 22 callbacks; headless `record` captured 2,572 cases; fixture `bridge → record → build → diff` 12/12; typed inference verified (LuaJIT FFI bridge) |
+| Lua / LÖVE | Preview | SlotBound `src/game/luck.lua` (2026-11-19) | `analyze` covers 66 modules / 22 callbacks; headless `record` captured 2,572 cases; fixture E2E 12/12; typed inference; shadow (0 mismatches on 1,543 luck calls); `bridge --batch` E2E 12/12; `profile` via LuaJIT `-jp` and instrumentation fallback |
 
 Details of every run: [real-world.md](real-world.md) (TS/JS) and
 [real-world-languages.md](real-world-languages.md) (the others).
