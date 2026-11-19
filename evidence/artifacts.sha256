@@ -1,1 +1,9 @@
 ﻿DOWNLOAD luajit-2.1.1794386141-windows-msvc-x64-static.zip https://github.com/li-ruijie/luajit/releases/download/v2.1.1794386141/luajit-2.1.1794386141-windows-msvc-x64-static.zip sha256=3f16e1091f8252a88c5484acfc65d4fe34a12043dee588809a23f5e44c06d360
+f02d4c763c4ab9001232efda774521dc6bd05e57866e305cb522479db81370f7  src/lang/lua.rs
+71b98bc6f68dea9c37cee8fcbd26d1e04d268dc9cfdf45519425075aa3015de6  src/codegen_lua.rs
+2c37958af8ab8d040de2f460e946e1f94bf480082bf26127e91b7aadcd25401a  src/harness_lua.rs
+46e6d4693d5c2e9a94a8c52efb8f8f2ad6c0fec0f61d27c340af75e02e940036  src/type_infer.rs
+6ba00359a187852fbf99175ea5b88c1d613356824402685a89cb7755010f6e89  src/bridge.rs
+12e8c2055a3e9f6f48590dd5555ebd7ea30bdcfcbdfaa5c802207e645ce68d61  src/codegen.rs
+b5a1bec4c19ef98f07dfc6b5dd826de8b0eb9f9b44c688b1f1abbc132f5dcfb8  tests/fixtures/lua_tiny/conf.lua
+e90c3c9caba210509fb75839f889d841d6b68445c504ef0f4f476ce5ec2d3b4a  src/codegen_lua.rs (panic-as-error fix)

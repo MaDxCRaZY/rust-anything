@@ -58,3 +58,8 @@ Clippy clean with `-D warnings`; no stubs/TODOs in fork source.
    (R6 may need struct generation for readability).
 3. Inference demo scratch crates live outside the fork
    (`D:\NativePort2\lua_tiny_infer_demo`, `lua_tiny_fresh_rs`, `lua_tiny_rs_backup_r3`).
+4. Verifier note: in-place re-bridge of a crate is refused by design (exit 2); reproduce
+   inference with a fresh crate seeded from `cases.jsonl`, not `--force` on the same dir.
+5. Verifier note (fixed after PASS): the generated wrapper only surfaced `answer.error`,
+   so a Rust `panic` could still yield a matching result. `codegen_lua.rs` now maps
+   `answer.panic` to an error prefixed `Rust panic:` and `docs/STATUS.md` has a Lua row.

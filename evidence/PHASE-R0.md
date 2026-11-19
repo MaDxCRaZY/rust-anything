@@ -30,7 +30,7 @@ $ luajit -v
 LuaJIT 2.1.1794386141 -- Copyright (C) 2005-2026 Mike Pall. https://luajit.org/
 
 $ cargo test --lib
-test result: ok. 153 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 173 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 $ cargo test --test analyze
 test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

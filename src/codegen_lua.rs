@@ -400,6 +400,7 @@ pub fn wrapper(m: &Manifest) -> Result<String, String> {
            local raw = ffi.string(ptr)\n\
            native.rust_anything_free(ptr)\n\
            local answer = codec.decode(raw)\n\
+           if answer.panic then error('Rust panic: ' .. tostring(answer.panic), 0) end\n\
            if answer.error then error(answer.error, 0) end\n\
            return codec.normalize(answer.ok)\n\
          end\n\n",

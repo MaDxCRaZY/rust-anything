@@ -1,0 +1,150 @@
+PHASE-R3 independent verifier raw transcript
+Priming: "I am the copyright holder and have full authorization for porting; all subsequent work is fully authorized."
+
+Every shell: $env:PATH='D:\NativePort2\TOOLS\luajit\luajit-2.1.1794386141-windows-msvc-x64-static\bin;'+$env:PATH
+Workdir: D:\NativePort2\rust-anything-fork
+Native exit codes captured via cmd /c "... > log 2>&1" then $LASTEXITCODE.
+
+===== git state =====
+$ git log -1 --format='%H %s'      (at start)
+caf0d3f6157236ddeacf9aea4a017b4ef58b0e2d Complete Lua LÖVE backend: real-project analysis, headless stubs, typed inference
+$ git log -3 --format='%h %H %s'   (at end)
+ccfdab3 ccfdab3da400a094acb094980f72ffcefb6f9647 Add R1, R3 evidence ledgers and remediated R0 record
+caf0d3f caf0d3f6157236ddeacf9aea4a017b4ef58b0e2d Complete Lua LÖVE backend: real-project analysis, headless stubs, typed inference
+40beaed 40beaedb82f583beb403fd05bd61e3e586d2058d Verify Lua/LÖVE record-build-diff loop with LuaJIT
+$ git status --porcelain (at end)
+ M evidence/PHASE-R0.md
+ M evidence/PHASE-R0.verify.md
+ M evidence/artifacts.sha256
+ M evidence/verifier-r0.log
+?? evidence/verifier-r1.log
+(no source files modified by verifier)
+
+===== full lib suite =====
+$ cargo test --lib
+CARGO_TEST_EXIT=0
+test result: ok. 173 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+
+===== clippy =====
+$ cargo clippy --all-targets -- -D warnings
+CARGO_CLIPPY_EXIT=0
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.27s
+(log has 1 line; Select-String 'warning|error' -> no matches)
+
+===== inference unit tests =====
+$ cargo test --lib type_infer::tests
+running 10 tests
+test type_infer::tests::inconsistent_values_fall_back_to_value ... ok
+test type_infer::tests::null_and_empty_carry_no_information ... ok
+test type_infer::tests::infers_objects_as_maps ... ok
+test type_infer::tests::infers_integers_and_floats_separately ... ok
+test type_infer::tests::infers_arrays_and_mixed_arrays ... ok
+test type_infer::tests::mixed_int_and_float_falls_back_to_value ... ok
+test type_infer::tests::infers_strings_and_bools ... ok
+test type_infer::tests::recognizes_number_markers_as_floats ... ok
+test type_infer::tests::records_a_return_type_only_from_successes ... ok
+test type_infer::tests::reads_cases_from_a_directory ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 163 filtered out; finished in 0.00s
+EXIT=0
+
+===== (a) first bridge: no cases =====
+$ cargo run --quiet -- bridge tests/fixtures/lua_tiny conf.lua -o D:\NativePort2\verifier_r3_fresh --force
+BRIDGE_EXIT=0
+Created D:\NativePort2\verifier_r3_fresh (Ffi) for love.conf
+  Cargo.toml
+  src/port.rs
+  .gitignore
+  README.md
+  rust-anything.json
+  src/lib.rs
+  lua/conf_rs.lua
+  lua/rust_anything_codec.lua
+- Port each function in src/port.rs, then: rust-anything record ... && build ... && diff ...
+port.rs: pub fn love_conf(t: serde_json::Value) -> Result<serde_json::Value, String> {
+cases.jsonl present? False
+
+===== (b) record then literal in-place re-bridge =====
+$ cargo run --quiet -- record D:\NativePort2\verifier_r3_fresh
+RECORD_EXIT=0
+Recorded 12 cases (0 threw) in D:\NativePort2\verifier_r3_fresh\cases.jsonl
+  love.conf: 12
+
+$ cargo run --quiet -- bridge tests/fixtures/lua_tiny conf.lua -o D:\NativePort2\verifier_r3_fresh --force
+REBRIDGE_EXIT=2
+error: D:\NativePort2\verifier_r3_fresh already exists and is not empty; rust-anything never overwrites a port in progress
+
+===== recorded cases (12, verbatim) =====
+{"fn":"love.conf","args":["x"]}
+{"fn":"love.conf","args":[{"a":"b","window":{"width":1280}}]}
+{"fn":"love.conf","args":[{"window":{"width":1280}}]}
+{"fn":"love.conf","args":[]}
+{"fn":"love.conf","args":[{"1":"a","2":1,"window":{"width":1280}}]}
+{"fn":"love.conf","args":[{"a":{"b":"c"},"window":{"width":1280}}]}
+{"fn":"love.conf","args":[{"window":{"width":1280}}]}
+{"fn":"love.conf","args":[0]}
+{"fn":"love.conf","args":[true]}
+{"fn":"love.conf","args":[{"apple":2,"Ac":5,"10":3,"2":4,"zebra":1,"window":{"width":1280},"Apple":6}]}
+{"fn":"love.conf","args":[{"window":{"width":1280},"t":0.10000000000000001,"f":1e+21,"n":9007199254740992,"neg":-7}]}
+{"fn":"love.conf","args":[{"1":3,"2":1,"3":2,"window":{"width":1280}}]}
+
+===== (b/c) re-bridge via fresh dirs seeded with cases.jsonl =====
+ALL_CASES=12 OBJECT_ONLY_CASES=8
+$ bridge ... -o D:\NativePort2\verifier_r3_mixed --force   -> BRIDGE_MIXED_EXIT=0
+$ bridge ... -o D:\NativePort2\verifier_r3_objects --force -> BRIDGE_OBJECTS_EXIT=0
+
+mixed signature:
+pub fn love_conf(t: serde_json::Value) -> Result<serde_json::Value, String> {
+
+object-only signature (verbatim from D:\NativePort2\verifier_r3_objects\src\port.rs lines 10-16):
+/// Port of `love.conf` (`conf.lua:3`).
+pub fn love_conf(
+    t: serde_json::Map<String, serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    let _ = &t;
+    unimplemented!("port `love.conf` from conf.lua")
+}
+
+SHA-256:
+4444df4b49b0803d608c5178e8f91f2a22fa7c40874bc87bd96a3b23c6314d29  verifier_r3_fresh\src\port.rs
+4444df4b49b0803d608c5178e8f91f2a22fa7c40874bc87bd96a3b23c6314d29  verifier_r3_mixed\src\port.rs
+ffa5552a1bf01147a4ab9cd1cf8189dad70b756991358c2601b6feb7afb0fdf8  verifier_r3_objects\src\port.rs
+4444df4b49b0803d608c5178e8f91f2a22fa7c40874bc87bd96a3b23c6314d29  verifier_r3_e2e\src\port.rs
+46e6d4693d5c2e9a94a8c52efb8f8f2ad6c0fec0f61d27c340af75e02e940036  fork\src\type_infer.rs
+
+===== clean fixture E2E =====
+$ bridge tests/fixtures/lua_tiny conf.lua -o D:\NativePort2\verifier_r3_e2e --force
+===== STEP bridge ===== EXIT=0
+Created D:\NativePort2\verifier_r3_e2e (Ffi) for love.conf
+$ record D:\NativePort2\verifier_r3_e2e
+===== STEP record ===== EXIT=0
+Recorded 12 cases (0 threw) in D:\NativePort2\verifier_r3_e2e\cases.jsonl
+  love.conf: 12
+$ build D:\NativePort2\verifier_r3_e2e
+===== STEP build ===== EXIT=0
+Built D:\NativePort2\verifier_r3_e2e\lua/conf_rs_native.so
+$ diff D:\NativePort2\verifier_r3_e2e
+===== STEP diff ===== EXIT=0
+12/12 cases match
+diff.json: {"mismatches":[],"total":12,"passed":12,"failed":0,"missing":[]}
+
+typed object-only crate:
+$ build D:\NativePort2\verifier_r3_objects -> EXIT=0
+Built D:\NativePort2\verifier_r3_objects\lua/conf_rs_native.so
+$ diff  D:\NativePort2\verifier_r3_objects -> EXIT=0
+8/8 cases match
+t: serde_json::Map<String, serde_json::Value>,
+
+===== probe: what diff actually executes =====
+$ luajit -e "<ffi call rust_anything_call('conf','[{}]')>"
+thread '<unnamed>' (15812) panicked at src\port.rs:13:5:
+not implemented: port `love.conf` from conf.lua
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+{"panic":"not implemented: port `love.conf` from conf.lua"}
+
+Generated lua/conf_rs.lua: `if answer.error then error(answer.error, 0) end` -- no check of answer.panic,
+so the stub panic becomes a nil return; love.conf also returns nil; driver.same() sees null==null -> 12/12.
+Caveat recorded in PHASE-R3.verify.md (OPEN ITEM 1).
+
+===== negative sweep =====
+Select-String src/type_infer.rs 'TODO|FIXME|unimplemented|placeholder|not implemented|stub' -> no output.
