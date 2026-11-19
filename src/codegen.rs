@@ -86,6 +86,14 @@ pub fn wire(ty: &str) -> Wire {
 
 /// `port.rs` with one stub per export, typed from the TS signature.
 pub fn port_rs(m: &Manifest) -> String {
+    port_rs_with(m, &crate::type_infer::Inferred::default())
+}
+
+/// `port.rs` with one stub per export. For Lua the manifest types are all `unknown` (`Value`);
+/// where `inferred` has evidence from `cases.jsonl`, a concrete type replaces it. Other
+/// languages, and exports/slots without evidence, keep the manifest-derived types.
+pub fn port_rs_with(m: &Manifest, inferred: &crate::type_infer::Inferred) -> String {
+    let lua = m.language == crate::lang::Lang::Lua;
     let mut out = format!(
         "//! The Rust port of `{}`.\n//!\n\
          //! Replace each `unimplemented!` with the port of the source function. Return `Err` where\n\
@@ -99,13 +107,29 @@ pub fn port_rs(m: &Manifest) -> String {
         let params = f
             .params
             .iter()
-            .map(|p| format!("{}: {}", snake_case(&p.name), port_param_type(m, p).rust()))
+            .enumerate()
+            .map(|(i, p)| {
+                let ty = if lua {
+                    inferred
+                        .param(&f.name, i)
+                        .map(|t| inferred_param_type(t, p))
+                        .unwrap_or_else(|| port_param_type(m, p).rust())
+                } else {
+                    port_param_type(m, p).rust()
+                };
+                format!("{}: {}", snake_case(&p.name), ty)
+            })
             .collect::<Vec<_>>()
             .join(", ");
-        let ret = match RType::from_ts(&f.returns) {
+        let ret = if lua {
+            inferred.ret(&f.name).map(|t| t.rust())
+        } else {
+            None
+        }
+        .unwrap_or_else(|| match RType::from_ts(&f.returns) {
             RType::Unit => "()".to_string(),
             t => t.rust(),
-        };
+        });
         let names: Vec<String> = f.params.iter().map(|p| snake_case(&p.name)).collect();
         let asyncness = if is_async(f) { "async " } else { "" };
         out.push('\n');
@@ -205,6 +229,24 @@ fn port_param_type(m: &Manifest, p: &crate::ts::exports::Param) -> RType {
         RType::from_ts(&p.ts_type)
     } else {
         param_type(p)
+    }
+}
+
+/// Keep a Lua parameter's rest/optional wrapping when an inferred base type replaces `unknown`.
+fn inferred_param_type(
+    t: &crate::type_infer::InferredType,
+    p: &crate::ts::exports::Param,
+) -> String {
+    let base = t.rust();
+    let base = if p.rest && !base.starts_with("Vec<") {
+        format!("Vec<{base}>")
+    } else {
+        base
+    };
+    if p.optional && !base.starts_with("Option<") {
+        format!("Option<{base}>")
+    } else {
+        base
     }
 }
 

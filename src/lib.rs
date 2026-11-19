@@ -48,6 +48,7 @@ pub mod setup;
 pub mod shadow;
 pub mod tolerance;
 pub mod ts;
+pub mod type_infer;
 pub mod walk;
 pub mod whole_app;
 pub mod wire;

@@ -139,6 +139,7 @@ fn shown(cmd: &Command) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)] // some tests are cfg(unix)-only
     use super::*;
 
     #[cfg(unix)]

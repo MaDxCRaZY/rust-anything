@@ -80,6 +80,12 @@ fn driver_command(
         work.join("rust_anything_codec.lua"),
         crate::codegen_lua::CODEC_LUA,
     )?;
+    // The driver requires this before any original file, so load-time LÖVE calls are safe
+    // while LÖVE callbacks can still be assigned onto the same global table.
+    std::fs::write(
+        work.join("rust_anything_headless_stub.lua"),
+        crate::codegen_lua::HEADLESS_STUB_LUA,
+    )?;
     std::fs::write(work.join("driver.lua"), crate::codegen_lua::driver())?;
     let targets = work.join("targets.json");
     std::fs::write(&targets, crate::codegen_lua::targets(m).to_string())?;
@@ -95,6 +101,9 @@ fn driver_command(
         m.root.display()
     );
     cmd.env("LUA_PATH", lua_path)
+        // Lets the driver read the original source to map local variable names onto the
+        // keys of the table a module returns (disambiguates nested-table exports).
+        .env("RUST_ANYTHING_LUA_ROOT", m.root.as_os_str())
         .arg(work.join("driver.lua"))
         .arg(mode)
         .arg(targets)

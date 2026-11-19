@@ -957,6 +957,26 @@ pub(crate) const DYNAMIC_LOOKUP_BUILD_RS: &str = r#"fn main() {
 }
 "#;
 
+/// Whether a crate folder already holds a port. A folder containing only the artifacts
+/// `record` writes has no port to overwrite; leaving it bridgeable lets Lua type inference
+/// read `cases.jsonl` on this generation instead of guessing from annotations alone.
+fn dir_has_port(crate_dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(crate_dir) else {
+        return false;
+    };
+    entries.flatten().any(|e| {
+        let name = e.file_name();
+        let name = name.to_string_lossy();
+        !matches!(
+            name.as_ref(),
+            crate::harness::CASES
+                | crate::recording::RECORDED_FROM
+                | crate::recording::KNOWN_DIFFS
+                | ".rust-anything"
+        )
+    })
+}
+
 pub fn bridge(opts: &Options) -> Result<Outcome> {
     let root = opts
         .root
@@ -1192,7 +1212,7 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
         .out
         .clone()
         .unwrap_or_else(|| root.join("rust").join(&crate_name));
-    if crate_dir.exists() && std::fs::read_dir(&crate_dir)?.next().is_some() {
+    if crate_dir.exists() && dir_has_port(&crate_dir) {
         bail!(
             "{} already exists and is not empty; rust-anything never overwrites a port in progress",
             crate_dir.display()
@@ -1222,7 +1242,15 @@ pub fn bridge(opts: &Options) -> Result<Outcome> {
     if kind == Kind::Ffi {
         return bridge_ffi(&manifest, &crate_dir, &js_only);
     }
-    let port = codegen::port_rs(&manifest);
+    // Lua has no static types; when a recording is already present (a re-bridge after `record`)
+    // use the types observed in it. On a first bridge there are no cases, so `port_rs_with`
+    // falls back to the manifest's `Value` types exactly as before.
+    let inferred = if lang == crate::lang::Lang::Lua {
+        crate::type_infer::from_cases_dir(&crate_dir)
+    } else {
+        crate::type_infer::Inferred::default()
+    };
+    let port = codegen::port_rs_with(&manifest, &inferred);
     let fns = codegen::parse_port(&port);
     let modules = codegen::Modules {
         utf16,
@@ -1438,7 +1466,14 @@ fn ffi_bindings(m: &Manifest, api: &codegen::PortApi) -> Result<Vec<(String, Str
 }
 
 fn bridge_ffi(manifest: &Manifest, crate_dir: &Path, kept: &[JsOnly]) -> Result<Outcome> {
-    let port = codegen::port_rs(manifest);
+    // Lua/LÖVE bridges use the FFI kind. A recording's observed values replace the dynamic
+    // `Value` types where they give one type; otherwise the manifest's types stand.
+    let inferred = if manifest.language == crate::lang::Lang::Lua {
+        crate::type_infer::from_cases_dir(crate_dir)
+    } else {
+        crate::type_infer::Inferred::default()
+    };
+    let port = codegen::port_rs_with(manifest, &inferred);
     let api = codegen::parse_port(&port);
     let mut files = vec![
         (
@@ -1773,5 +1808,70 @@ mod tests {
         assert_eq!(snake_case("type"), "r#type");
         assert_eq!(snake_case("toURL"), "to_url");
         assert_eq!(snake_case("parseHTMLString"), "parse_html_string");
+    }
+
+    #[test]
+    fn a_folder_with_only_recordings_has_no_port_to_overwrite() {
+        let base = std::env::temp_dir().join(format!("ra-rebridge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        assert!(!dir_has_port(&base));
+        std::fs::write(base.join(crate::harness::CASES), "{}\n").unwrap();
+        std::fs::create_dir_all(base.join(".rust-anything")).unwrap();
+        assert!(!dir_has_port(&base));
+        std::fs::write(base.join("src"), "").unwrap();
+        assert!(dir_has_port(&base));
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn lua_port_uses_inferred_types_and_other_languages_do_not() {
+        let export = ExportedFn {
+            name: "love.conf".into(),
+            file: "conf.lua".into(),
+            line: 1,
+            params: vec![crate::ts::exports::Param {
+                name: "t".into(),
+                ts_type: "unknown".into(),
+                ..Default::default()
+            }],
+            returns: "unknown".into(),
+            ..Default::default()
+        };
+        let mut manifest = Manifest {
+            schema: SCHEMA.into(),
+            root: std::path::PathBuf::from("."),
+            root_written: None,
+            unit: "conf.lua".into(),
+            language: crate::lang::Lang::Lua,
+            kind: Kind::Ffi,
+            crate_name: "conf-rs".into(),
+            exports: vec![export],
+            classes: Vec::new(),
+            js_only: Vec::new(),
+            batches: Vec::new(),
+            float_tolerance: None,
+        };
+        let cases = [crate::type_infer::Case {
+            name: "love.conf".into(),
+            args: vec![serde_json::json!({"window": {"width": 1280}})],
+            ok: None,
+            error: None,
+        }];
+        let inferred = crate::type_infer::infer(&cases);
+        let port = codegen::port_rs_with(&manifest, &inferred);
+        assert!(
+            port.contains("pub fn love_conf(t: serde_json::Map<String, serde_json::Value>)"),
+            "{port}"
+        );
+
+        // No cases (first bridge): the old `Value` signature stands.
+        let fallback = codegen::port_rs(&manifest);
+        assert!(fallback.contains("pub fn love_conf(t: serde_json::Value)"));
+
+        // A non-Lua export is never rewritten by inference.
+        manifest.language = crate::lang::Lang::Ts;
+        let ts_port = codegen::port_rs_with(&manifest, &inferred);
+        assert!(ts_port.contains("pub fn love_conf(t: serde_json::Value)"));
     }
 }
