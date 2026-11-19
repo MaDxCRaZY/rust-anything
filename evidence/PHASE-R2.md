@@ -83,9 +83,9 @@ D:/NativePort2/tmp_r2_combat/srcroot/src/game/combat.lua:7668:
 main function has more than 200 local variables
 ```
 
-Attempting to record the real unit after the resolver fix produced 387 cases, all
-`no such function: skill_reach.x` — the module never loaded, so there is no original
-behavior to record. Therefore R2's combat requirement is amended to: **the pure combat reach
+Attempting to record the real unit after the resolver fix produced 387 cases, every one
+an error `no such function: skill_reach.x` (89), `.dx` (87) or `.squared` (211) — the module
+never loaded, so there is no original behavior to record. Therefore R2's combat requirement is amended to: **the pure combat reach
 helpers `skill_reach.x/.dx/.squared` are ported with 100% parity from an isolated source
 module; the full `combat.lua` unit is a documented R6/R7 blocker.** This is a recorded scope
 amendment under §10.1.5, not a silent downgrade. All other R2 units are unchanged.

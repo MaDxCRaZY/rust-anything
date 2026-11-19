@@ -12,6 +12,6 @@ b5a1bec4c19ef98f07dfc6b5dd826de8b0eb9f9b44c688b1f1abbc132f5dcfb8  tests/fixtures
 12b7bec2606646d18ee9088d19eb4ba18a2b49d545b0e01f7a38b04f5720efde  save/src/port.rs
 25731a3382369aa97d28819b12fd47e695009973183eecf7e29083b2c3be8e7c  i18n/src/port.rs
 0e9aa300bd7d7b8df88740620eb01d3fadb67fd80106b4a2021c9e5f4365af06  combat-reach/src/port.rs
-d150c2aaeb09cb6986e7a76d40fd6ddd7081c6e707e8fe1cc640d976a69f3e28  combat-crate/src/port.rs
+d150c2aaeb09cb6986e7a76d40fd6ddd7081c6e707e8fe1cc640d976a69f3e28  combat-crate/src/port.rs  (intentionally-stubbed real-unit scratch crate; not a deliverable)
 023d4efbef81763bd1a5ede46f16c950e7eabefb9ffcd1a0961a0efb9b76a5d6  window/src/port.rs
 fcf66d535b1ed4f50b5e81b8e528c6c29e979309258680acfbad4f418bd1c4ba  steam/src/port.rs
